@@ -1,9 +1,8 @@
 //! libghostty-vt 정적 링크. 엔진은 C 라이브러리라 cargo 의존성이 아니라 링크 대상이다 —
 //! 그 산출물을 어디서 찾아 어떻게 거는지가 이 파일의 전부다.
 //!
-//! 경로는 추측하지 않는다: 선언(`SOKSAK_GHOSTTY_VT_LIB`)이 우선이고, 없으면 벤더 규약
-//! (`<unit>/../../vendor/ghostty/zig-out/lib`)으로 발견한다. 라이브러리가 없으면 빌드를
-//! 조용히 통과시키지 않고, 만드는 법을 적어 실패한다(무음 금지).
+//! SOKSAK_GHOSTTY_VT_LIB declares the directory containing the engine archive. The build does
+//! not guess a source checkout or installation path.
 //!
 //! 엔진의 lib 디렉토리에는 정적 아카이브와 dylib 이 함께 있고, macOS 링커는 같은 이름이면
 //! dylib 을 먼저 집는다 — 그러면 실행 시 `@rpath/libghostty-vt.dylib` 를 찾다 죽는다. 그래서
@@ -20,24 +19,23 @@ use std::path::PathBuf;
 
 fn main() {
     // 타깃(호스트가 아니라 빌드 대상) OS 로 아카이브·링크 이름을 고른다 — 크로스 빌드에도 옳다.
-    let target_windows =
-        std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows");
+    let target_windows = std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows");
     let archive_name = if target_windows {
         "ghostty-vt-static.lib"
     } else {
         "libghostty-vt.a"
     };
-    let link_name = if target_windows { "ghostty-vt-static" } else { "ghostty-vt" };
-
-    let vendor_lib_dir = match std::env::var("SOKSAK_GHOSTTY_VT_LIB") {
-        Ok(v) if !v.is_empty() => PathBuf::from(v),
-        _ => {
-            let manifest = PathBuf::from(
-                std::env::var("CARGO_MANIFEST_DIR").expect("cargo supplies CARGO_MANIFEST_DIR"),
-            );
-            manifest.join("../../vendor/ghostty/zig-out/lib")
-        }
+    let link_name = if target_windows {
+        "ghostty-vt-static"
+    } else {
+        "ghostty-vt"
     };
+
+    let vendor_lib_dir = std::env::var("SOKSAK_GHOSTTY_VT_LIB")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .expect("SOKSAK_GHOSTTY_VT_LIB must declare the libghostty-vt archive directory");
 
     let archive = vendor_lib_dir.join(archive_name);
     if !archive.is_file() {

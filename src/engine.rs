@@ -25,6 +25,10 @@
 //!   - charset: DEC Special Graphics 번역이 print 시점에 끝나 셀 codepoint 가 이미 박스
 //!     글리프(─│┌┐└┘)다 — 좌석이 charset 을 따로 만질 것이 없다.
 
+use soksak_kit_sidecar_terminal::mirror::TerminalEngine;
+pub use soksak_kit_sidecar_terminal::mirror::{
+    TerminalCell as GridCell, TerminalColor as ColorSnap, TerminalModes as ModeSnap,
+};
 use std::ffi::c_void;
 use std::os::raw::c_int;
 
@@ -40,59 +44,6 @@ pub const MIRROR_SCROLLBACK_LINES: usize = 1000;
 /// (스타일·그래핌이 촘촘한 행일수록 페이지에 적게 들어간다 — 무거운 내용 기준으로 잡는다.
 /// `engine_retains_the_whole_window_under_heavy_content` 가 이 값을 지킨다.)
 const SCROLLBACK_BUDGET_BYTES: usize = 8 * 1024 * 1024;
-
-// ── 엔진-중립 스냅샷 타입(계약의 비교 통화 — 두 엔진 유닛 공용) ──────────────
-
-/// 색 스냅샷 — 엔진 타입을 밖으로 새지 않게 자체 표현으로 고정한다.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ColorSnap {
-    Default,
-    Named(u8),
-    Indexed(u8),
-    Rgb(u8, u8, u8),
-}
-
-/// 복원 대상 private mode 집합의 스냅샷(rehydrate 가 재현해야 하는 전부).
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct ModeSnap {
-    pub bracketed_paste: bool,
-    pub app_cursor: bool,
-    pub app_keypad: bool,
-    pub mouse_click: bool,
-    pub mouse_drag: bool,
-    pub mouse_motion: bool,
-    pub sgr_mouse: bool,
-    pub utf8_mouse: bool,
-    pub focus_in_out: bool,
-    pub alternate_scroll: bool,
-    pub show_cursor: bool,
-    pub line_wrap: bool,
-    pub insert: bool,
-}
-
-/// 직렬화기가 읽는 엔진-중립 셀 — 직렬화에 필요한 것을 다 담는다(spacer·wrapline·zerowidth
-/// 포함). 이 타입 하나가 직렬화기의 그리드 읽기 단일 창이다 — 엔진 세부는 이 파일 밖으로
-/// 나가지 않는다.
-pub struct GridCell {
-    pub ch: char,
-    pub fg: ColorSnap,
-    pub bg: ColorSnap,
-    pub bold: bool,
-    pub dim: bool,
-    pub italic: bool,
-    pub underline: bool,
-    pub inverse: bool,
-    pub strikeout: bool,
-    pub hidden: bool,
-    /// wide 문자 본체(2칸 점유의 첫 칸).
-    pub wide: bool,
-    /// wide 문자 스페이서(본체 뒤 칸) — 직렬화기가 건너뛴다.
-    pub spacer: bool,
-    /// WRAPLINE — 마지막 칸에서만 의미: 이 행이 자연 개행(wrap)으로 이어진다.
-    pub wrapline: bool,
-    /// 결합 문자(zero-width) 후속.
-    pub zerowidth: Vec<char>,
-}
 
 fn blank_cell() -> GridCell {
     GridCell {
@@ -135,12 +86,14 @@ mod ffi {
     pub const OPT_USERDATA: c_int = 0;
     pub const OPT_WRITE_PTY: c_int = 1;
     pub const OPT_DEVICE_ATTRIBUTES: c_int = 8;
+    pub const OPT_SCROLLBACK_MAX_BYTES: c_int = 27;
 
     // GhosttyTerminalData
     pub const DATA_CURSOR_X: c_int = 3;
     pub const DATA_CURSOR_Y: c_int = 4;
     pub const DATA_ACTIVE_SCREEN: c_int = 6;
     pub const DATA_SCROLLBACK_ROWS: c_int = 15;
+    pub const DATA_MODE: c_int = 37;
 
     // GhosttyTerminalScreen
     pub const SCREEN_ALTERNATE: c_int = 1;
@@ -186,11 +139,9 @@ mod ffi {
     }
 
     #[repr(C)]
-    #[derive(Clone, Copy)]
-    pub struct TerminalOptions {
-        pub cols: u16,
-        pub rows: u16,
-        pub max_scrollback: usize,
+    pub struct TerminalModeConfig {
+        pub mode: u16,
+        pub value: bool,
     }
 
     #[repr(C)]
@@ -287,7 +238,8 @@ mod ffi {
         pub fn ghostty_terminal_new(
             allocator: *const c_void,
             terminal: *mut Terminal,
-            options: TerminalOptions,
+            cols: u16,
+            rows: u16,
         ) -> c_int;
         pub fn ghostty_terminal_free(terminal: Terminal);
         pub fn ghostty_terminal_resize(
@@ -303,7 +255,6 @@ mod ffi {
             value: *const c_void,
         ) -> c_int;
         pub fn ghostty_terminal_vt_write(terminal: Terminal, data: *const u8, len: usize);
-        pub fn ghostty_terminal_mode_get(terminal: Terminal, mode: u16, out: *mut bool) -> c_int;
         pub fn ghostty_terminal_get(terminal: Terminal, data: c_int, out: *mut c_void) -> c_int;
         pub fn ghostty_terminal_grid_ref(
             terminal: Terminal,
@@ -349,7 +300,12 @@ unsafe fn bump(userdata: *mut c_void) {
 
 // DSR·DECRQM·OSC 색 질의·ENQ 응답이 여기로 온다. 바이트는 버린다(복사조차 하지 않는다 —
 // 빌려온 버퍼는 콜백 밖에서 무효다).
-extern "C" fn cb_write_pty(_t: ffi::Terminal, userdata: *mut c_void, _data: *const u8, _len: usize) {
+extern "C" fn cb_write_pty(
+    _t: ffi::Terminal,
+    userdata: *mut c_void,
+    _data: *const u8,
+    _len: usize,
+) {
     unsafe { bump(userdata) };
 }
 
@@ -387,10 +343,7 @@ impl Engine {
         let cols = cols.max(1);
         let rows = rows.max(1);
         let mut term: ffi::Terminal = std::ptr::null_mut();
-        let opts =
-            ffi::TerminalOptions { cols, rows, max_scrollback: SCROLLBACK_BUDGET_BYTES };
-        // allocator = NULL → 엔진 기본 할당자.
-        let r = unsafe { ffi::ghostty_terminal_new(std::ptr::null(), &mut term, opts) };
+        let r = unsafe { ffi::ghostty_terminal_new(std::ptr::null(), &mut term, cols, rows) };
         assert!(
             r == ffi::SUCCESS && !term.is_null(),
             "ghostty_terminal_new failed (result {r})"
@@ -401,7 +354,11 @@ impl Engine {
         let write_pty: ffi::WritePtyFn = cb_write_pty;
         let device_attributes: ffi::DeviceAttributesFn = cb_device_attributes;
         unsafe {
-            // 콜백·userdata 는 값이 곧 포인터다(터미널이 그대로 보관).
+            ffi::ghostty_terminal_set(
+                term,
+                ffi::OPT_SCROLLBACK_MAX_BYTES,
+                (&SCROLLBACK_BUDGET_BYTES as *const usize).cast(),
+            );
             ffi::ghostty_terminal_set(term, ffi::OPT_USERDATA, userdata);
             ffi::ghostty_terminal_set(term, ffi::OPT_WRITE_PTY, write_pty as *const c_void);
             ffi::ghostty_terminal_set(
@@ -411,7 +368,12 @@ impl Engine {
             );
         }
 
-        Engine { term, counters, cols, rows }
+        Engine {
+            term,
+            counters,
+            cols,
+            rows,
+        }
     }
 
     /// 세션 출력 바이트 소비. 응답 요구 시퀀스는 콜백에서 계수되고 버려진다 — 나가는 바이트는
@@ -507,9 +469,18 @@ impl Engine {
     }
 
     fn mode(&self, packed: u16) -> bool {
-        let mut v = false;
-        let r = unsafe { ffi::ghostty_terminal_mode_get(self.term, packed, &mut v) };
-        r == ffi::SUCCESS && v
+        let mut config = ffi::TerminalModeConfig {
+            mode: packed,
+            value: false,
+        };
+        let result = unsafe {
+            ffi::ghostty_terminal_get(
+                self.term,
+                ffi::DATA_MODE,
+                (&mut config as *mut ffi::TerminalModeConfig).cast(),
+            )
+        };
+        result == ffi::SUCCESS && config.value
     }
 
     /// 미러가 관찰한, 삼킨 응답 요구 수(DA1/DA2/DA3·DSR·DECRQM·OSC 질의). 엔진은 응답을
@@ -562,7 +533,9 @@ impl Engine {
     fn grid_ref(&self, tag: c_int, x: u16, y: u32) -> Option<ffi::GridRef> {
         let point = ffi::Point {
             tag,
-            value: ffi::PointValue { coordinate: ffi::PointCoordinate { x, y } },
+            value: ffi::PointValue {
+                coordinate: ffi::PointCoordinate { x, y },
+            },
         };
         let mut gref = ffi::GridRef::sized();
         let r = unsafe { ffi::ghostty_terminal_grid_ref(self.term, point, &mut gref) };
@@ -579,6 +552,45 @@ impl Drop for Engine {
         // (필드는 이 함수가 끝난 뒤 선언 순서로 떨어진다).
         unsafe { ffi::ghostty_terminal_free(self.term) };
         self.term = std::ptr::null_mut();
+    }
+}
+
+impl TerminalEngine for Engine {
+    fn new(cols: u16, rows: u16) -> Self {
+        Engine::new(cols, rows)
+    }
+    fn initialize(&mut self) {
+        self.feed(b"\x1b[?1007l");
+    }
+    fn feed(&mut self, bytes: &[u8]) {
+        Engine::feed(self, bytes);
+    }
+    fn resize(&mut self, cols: u16, rows: u16) {
+        Engine::resize(self, cols, rows);
+    }
+    fn cols(&self) -> u16 {
+        Engine::cols(self)
+    }
+    fn rows(&self) -> u16 {
+        Engine::rows(self)
+    }
+    fn cursor(&self) -> (usize, usize) {
+        Engine::cursor(self)
+    }
+    fn alt_active(&self) -> bool {
+        Engine::alt_active(self)
+    }
+    fn history_size(&self) -> usize {
+        Engine::history_size(self)
+    }
+    fn modes(&self) -> ModeSnap {
+        Engine::modes(self)
+    }
+    fn line_cells(&self, line: i32) -> Vec<GridCell> {
+        Engine::line_cells(self, line)
+    }
+    fn suppressed_replies(&self) -> u64 {
+        Engine::suppressed_replies(self)
     }
 }
 
@@ -604,15 +616,26 @@ fn cell_of(gref: &ffi::GridRef) -> GridCell {
     // wide 스페이서는 본체 뒤의 점유 칸이다 — 문자를 담지 않는다.
     let mut wide_tag: c_int = ffi::WIDE_NARROW;
     unsafe {
-        ffi::ghostty_cell_get(cell, ffi::CELL_DATA_WIDE, (&mut wide_tag as *mut c_int).cast())
+        ffi::ghostty_cell_get(
+            cell,
+            ffi::CELL_DATA_WIDE,
+            (&mut wide_tag as *mut c_int).cast(),
+        )
     };
     if wide_tag == ffi::WIDE_SPACER_TAIL || wide_tag == ffi::WIDE_SPACER_HEAD {
-        return GridCell { spacer: true, ..blank_cell() };
+        return GridCell {
+            spacer: true,
+            ..blank_cell()
+        };
     }
 
     let mut content: c_int = 0;
     unsafe {
-        ffi::ghostty_cell_get(cell, ffi::CELL_DATA_CONTENT_TAG, (&mut content as *mut c_int).cast())
+        ffi::ghostty_cell_get(
+            cell,
+            ffi::CELL_DATA_CONTENT_TAG,
+            (&mut content as *mut c_int).cast(),
+        )
     };
 
     let mut style = ffi::Style::sized();
@@ -648,14 +671,21 @@ fn cell_of(gref: &ffi::GridRef) -> GridCell {
                 ffi::ghostty_cell_get(cell, ffi::CELL_DATA_CODEPOINT, (&mut cp as *mut u32).cast())
             };
             // codepoint 0 = 빈 칸.
-            let ch = if cp == 0 { ' ' } else { char::from_u32(cp).unwrap_or(' ') };
+            let ch = if cp == 0 {
+                ' '
+            } else {
+                char::from_u32(cp).unwrap_or(' ')
+            };
             (ch, style_color_snap(&style.bg_color))
         }
     };
 
     // 결합 문자는 클러스터를 든 셀에만 있다 — 그 외 셀에 FFI 왕복을 낭비하지 않는다.
-    let zerowidth =
-        if content == ffi::CONTENT_CODEPOINT_GRAPHEME { graphemes_of(gref) } else { Vec::new() };
+    let zerowidth = if content == ffi::CONTENT_CODEPOINT_GRAPHEME {
+        graphemes_of(gref)
+    } else {
+        Vec::new()
+    };
 
     GridCell {
         ch,
@@ -680,9 +710,7 @@ fn cell_of(gref: &ffi::GridRef) -> GridCell {
 fn graphemes_of(gref: &ffi::GridRef) -> Vec<char> {
     let mut buf = [0u32; 8];
     let mut len: usize = 0;
-    let r = unsafe {
-        ffi::ghostty_grid_ref_graphemes(gref, buf.as_mut_ptr(), buf.len(), &mut len)
-    };
+    let r = unsafe { ffi::ghostty_grid_ref_graphemes(gref, buf.as_mut_ptr(), buf.len(), &mut len) };
     let cps: Vec<u32> = match r {
         ffi::SUCCESS => buf[..len.min(buf.len())].to_vec(),
         ffi::OUT_OF_SPACE => {
@@ -700,7 +728,10 @@ fn graphemes_of(gref: &ffi::GridRef) -> Vec<char> {
         _ => return Vec::new(),
     };
     // [0] 은 본체 codepoint — 결합 문자는 그 뒤다.
-    cps.iter().skip(1).filter_map(|c| char::from_u32(*c)).collect()
+    cps.iter()
+        .skip(1)
+        .filter_map(|c| char::from_u32(*c))
+        .collect()
 }
 
 // 스타일 색 → 엔진-중립 ColorSnap. 팔레트는 인덱스를 그대로 옮긴다(RGB 로 해소하면 직렬화가
@@ -780,7 +811,10 @@ mod tests {
         assert!(m.line_wrap, "auto-wrap(7) defaults on");
         assert!(m.show_cursor, "cursor(25) defaults on");
         assert!(m.alternate_scroll, "alt-scroll(1007) defaults on");
-        assert!(!m.bracketed_paste && !m.app_cursor && !m.insert, "the rest default off");
+        assert!(
+            !m.bracketed_paste && !m.app_cursor && !m.insert,
+            "the rest default off"
+        );
     }
 
     // DEC Special Graphics 는 print 시점에 번역돼 셀 codepoint 가 이미 박스 글리프다 —
@@ -839,7 +873,13 @@ mod tests {
         assert_eq!(e.history_size(), 4, "four rows scrolled into history");
         let newest: String = e.line_cells(-1).iter().map(|c| c.ch).collect();
         let oldest: String = e.line_cells(-4).iter().map(|c| c.ch).collect();
-        assert!(newest.starts_with("L4"), "line -1 is the newest history row (got {newest:?})");
-        assert!(oldest.starts_with("L1"), "line -4 is the oldest history row (got {oldest:?})");
+        assert!(
+            newest.starts_with("L4"),
+            "line -1 is the newest history row (got {newest:?})"
+        );
+        assert!(
+            oldest.starts_with("L1"),
+            "line -4 is the oldest history row (got {oldest:?})"
+        );
     }
 }

@@ -9,11 +9,29 @@
 //! 합격 판정은 계약의 kit(soksak-kit-terminal-conformance)이 소유한다 — 픽스처도 판정자도
 //! 이 크레이트에 사본으로 두지 않는다. tests/conformance.rs 가 그 스위트에 이 미러를 세운다.
 
-pub mod checkpoint;
-pub mod daemon;
 pub mod engine;
 pub mod mirror;
-pub mod proto;
-pub mod service;
 
 pub use mirror::Mirror;
+
+impl soksak_kit_sidecar_terminal::TerminalStateMirror for Mirror {
+    fn feed(&mut self, bytes: &[u8]) {
+        Mirror::feed(self, bytes);
+    }
+    fn resize(&mut self, cols: u16, rows: u16) {
+        Mirror::resize(self, cols, rows);
+    }
+    fn rehydrate(&self) -> Vec<u8> {
+        Mirror::rehydrate(self)
+    }
+    fn cold_paint(&self) -> Vec<u8> {
+        Mirror::cold_paint(self)
+    }
+    fn frame(&self) -> soksak_kit_sidecar_terminal::mirror::TerminalFrame { Mirror::frame(self) }
+    fn alt_active(&self) -> bool {
+        Mirror::alt_active(self)
+    }
+    fn suppressed_replies(&self) -> u64 {
+        Mirror::suppressed_replies(self)
+    }
+}

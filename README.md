@@ -12,7 +12,7 @@ Chromium).
 The normative wire (server face, consumer/daemon peering, checkpoint policy, failure
 semantics, acceptance) is owned by **one** repo, and it is not this one:
 `soksak-contract-terminal` (`~/.soksak-dev/contracts/soksak-contract-terminal`). It owns
-`SPEC.md`, the corpus, the declared goldens, and the assertions this unit is graded by.
+`SPEC.md`, the corpus, the declared reference states, and the assertions this unit is graded by.
 This unit implements that contract; it does not restate it.
 
 ## Build requirements
@@ -100,7 +100,7 @@ reading only the style would lose the background of blank colored regions.
 ## The gate
 
 **This unit passes when `scripts/gate.sh` passes, and by no other means.** One command, all of
-it blocking: the seven fixtures against the contract's declared goldens, the unit tests, the
+it blocking: the seven fixtures against the contract's declared reference states, the unit tests, the
 real-daemon integration, and the performance budgets (SPEC.md §14.2). The benchmark is ignored
 in the ordinary test run — it would slow the development loop — so the gate is what makes the
 budget binding rather than decorative. The contract repo's own `scripts/gate.sh` runs this one
@@ -122,7 +122,7 @@ Conformance result against `soksak-spec-sidecar-terminal`: **7 of 7 fixtures pas
 The seven fixtures — scrollback across a mid-escape ring cut, CJK width across a mid-UTF-8
 cut, alt-screen with frozen primary scrollback, private-mode rehydrate beyond the ring
 window, the replay guard, cold paint of an alt-screen TUI, and DEC line-drawing round trip
-— all pass against the declared goldens. The lib unit tests, `service_down`, and the real-ptyd integration are GREEN.
+— all pass against the declared reference states. The lib unit tests, `service_down`, and the real-ptyd integration are GREEN.
 
 Fixture ④ was RED on the first run and is worth recording: the restored scrollback held
 588 rows against the original's 1000. That was the byte-budget/page-pruning behavior
