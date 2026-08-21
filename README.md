@@ -23,10 +23,15 @@ vendored into this repo — it is built from the ghostty source:
 
 | Requirement | Value |
 | --- | --- |
-| Zig | **0.15.2** (ghostty's `minimum_zig_version`) |
-| ghostty source | pinned at commit **`a887df4`** |
+| Zig | **0.16.0** (ghostty's `minimum_zig_version`) |
+| ghostty source | pinned at commit **`9ae02a326f62bd88f7f5508cf1807c67e7775cb5`** |
 | Build command | `zig build -Demit-lib-vt=true -Doptimize=ReleaseFast` |
 | Archive | `<ghostty>/zig-out/lib/libghostty-vt.a` |
+
+The SDK root also contains `source-commit.txt` and `zig-version.txt`. The build rejects an archive
+without those exact provenance values. A Linux archive built without ReleaseFast measured
+0.482 MB/s against 79.218 MB/s daemon demand and lost 65,615,783 bytes; the pinned ReleaseFast
+archive measured 125.572 MB/s, zero gap bytes and a visible tail marker on 2026-08-22.
 
 The commit is pinned on purpose. libghostty-vt declares that its *functionality* is
 stable but its *API signatures* are still in flux and may break without warning; the pin
