@@ -65,22 +65,23 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git init -q _ghostty
-          git -C _ghostty remote add origin https://github.com/min-median-max/ghostty.git
-          git -C _ghostty fetch -q --depth 1 origin libghostty-vt-0.1.0-dev
-          git -C _ghostty -c advice.detachedHead=false checkout -q FETCH_HEAD
-          test "$(git -C _ghostty rev-parse HEAD)" = 9ae02a326f62bd88f7f5508cf1807c67e7775cb5
-          ( cd _ghostty && zig build -Demit-lib-vt=true -Doptimize=ReleaseFast -Dcpu=baseline )
-          printf '%s\n' 9ae02a326f62bd88f7f5508cf1807c67e7775cb5 > _ghostty/zig-out/source-commit.txt
-          printf '%s\n' 0.16.0 > _ghostty/zig-out/zig-version.txt
+          ghostty="$RUNNER_TEMP/ghostty-source"
+          git init -q "$ghostty"
+          git -C "$ghostty" remote add origin https://github.com/min-median-max/ghostty.git
+          git -C "$ghostty" fetch -q --depth 1 origin libghostty-vt-0.1.0-dev
+          git -C "$ghostty" -c advice.detachedHead=false checkout -q FETCH_HEAD
+          test "$(git -C "$ghostty" rev-parse HEAD)" = 9ae02a326f62bd88f7f5508cf1807c67e7775cb5
+          ( cd "$ghostty" && zig build -Demit-lib-vt=true -Doptimize=ReleaseFast -Dcpu=baseline )
+          printf '%s\n' 9ae02a326f62bd88f7f5508cf1807c67e7775cb5 > "$ghostty/zig-out/source-commit.txt"
+          printf '%s\n' 0.16.0 > "$ghostty/zig-out/zig-version.txt"
           # ghostty 정적 라이브러리 이름은 플랫폼마다 다르다: Windows 는 ghostty-vt-static.lib
           # (DLL import lib 과의 충돌 회피, build.zig), 나머지는 libghostty-vt.a. build.rs 가
           # 같은 규칙으로 링크한다.
           case "${{ matrix.target }}" in
-            *windows*) test -f _ghostty/zig-out/lib/ghostty-vt-static.lib ;;
-            *)         test -f _ghostty/zig-out/lib/libghostty-vt.a ;;
+            *windows*) test -f "$ghostty/zig-out/lib/ghostty-vt-static.lib" ;;
+            *)         test -f "$ghostty/zig-out/lib/libghostty-vt.a" ;;
           esac
-          echo "SOKSAK_GHOSTTY_VT_LIB=$PWD/_ghostty/zig-out/lib" >> "$GITHUB_ENV"
+          echo "SOKSAK_GHOSTTY_VT_LIB=$ghostty/zig-out/lib" >> "$GITHUB_ENV"
       - name: Build and stage the release binary for this target
         shell: bash
         run: ./stage.sh dist "${{ matrix.target }}"
