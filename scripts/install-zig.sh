@@ -24,7 +24,7 @@ case "$archive" in
   *.zip) unzip -q "$download" -d "$root" ;;
   *) tar -xJf "$download" -C "$root" ;;
 esac
-zig=$(find "$root" -type f ( -name zig -o -name zig.exe ) -print -quit)
+zig=$(find "$root" -type f \( -name zig -o -name zig.exe \) -print -quit)
 test -n "$zig"
 directory=$(dirname "$zig")
 printf '%s\n' "$directory" >> "${GITHUB_PATH:?GITHUB_PATH is required}"
