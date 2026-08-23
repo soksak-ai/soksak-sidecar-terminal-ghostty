@@ -234,7 +234,7 @@ mod ffi {
     /// device_attributes 효과 — DA1/DA2/DA3 질의. false 반환 = 응답 없음.
     pub type DeviceAttributesFn = extern "C" fn(Terminal, *mut c_void, *mut c_void) -> bool;
 
-    extern "C" {
+    unsafe extern "C" {
         pub fn ghostty_terminal_new(
             allocator: *const c_void,
             terminal: *mut Terminal,
@@ -293,7 +293,7 @@ struct Counters {
 
 // userdata 포인터에서 계수기를 되찾아 1 올린다. 콜백은 vt_write 안에서 동기 호출된다.
 unsafe fn bump(userdata: *mut c_void) {
-    if let Some(c) = (userdata as *mut Counters).as_mut() {
+    if let Some(c) = unsafe { (userdata as *mut Counters).as_mut() } {
         c.suppressed = c.suppressed.saturating_add(1);
     }
 }
@@ -517,10 +517,8 @@ impl Engine {
                 None => out.push(blank_cell()),
             }
         }
-        if wrapped {
-            if let Some(last) = out.last_mut() {
-                last.wrapline = true;
-            }
+        if wrapped && let Some(last) = out.last_mut() {
+            last.wrapline = true;
         }
         out
     }
