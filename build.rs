@@ -38,15 +38,31 @@ fn main() {
         .expect("SOKSAK_GHOSTTY_VT_LIB must declare the libghostty-vt archive directory");
 
     let archive = vendor_lib_dir.join(archive_name);
-    let source_commit = vendor_lib_dir.parent().unwrap_or(&vendor_lib_dir).join("source-commit.txt");
-    let zig_version = vendor_lib_dir.parent().unwrap_or(&vendor_lib_dir).join("zig-version.txt");
+    let source_commit = vendor_lib_dir
+        .parent()
+        .unwrap_or(&vendor_lib_dir)
+        .join("source-commit.txt");
+    let zig_version = vendor_lib_dir
+        .parent()
+        .unwrap_or(&vendor_lib_dir)
+        .join("zig-version.txt");
     let commit = std::fs::read_to_string(&source_commit).unwrap_or_else(|error| {
-        panic!("Ghostty SDK provenance is missing at {}: {error}", source_commit.display())
+        panic!(
+            "Ghostty SDK provenance is missing at {}: {error}",
+            source_commit.display()
+        )
     });
     let zig = std::fs::read_to_string(&zig_version).unwrap_or_else(|error| {
-        panic!("Ghostty SDK Zig version is missing at {}: {error}", zig_version.display())
+        panic!(
+            "Ghostty SDK Zig version is missing at {}: {error}",
+            zig_version.display()
+        )
     });
-    assert_eq!(commit.trim(), "9ae02a326f62bd88f7f5508cf1807c67e7775cb5", "Ghostty SDK source commit");
+    assert_eq!(
+        commit.trim(),
+        "9ae02a326f62bd88f7f5508cf1807c67e7775cb5",
+        "Ghostty SDK source commit"
+    );
     assert_eq!(zig.trim(), "0.16.0", "Ghostty SDK Zig version");
     if !archive.is_file() {
         panic!(

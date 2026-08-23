@@ -442,11 +442,7 @@ impl Engine {
                 (&mut n as *mut usize).cast(),
             )
         };
-        if r == ffi::SUCCESS {
-            n
-        } else {
-            0
-        }
+        if r == ffi::SUCCESS { n } else { 0 }
     }
 
     pub fn modes(&self) -> ModeSnap {
