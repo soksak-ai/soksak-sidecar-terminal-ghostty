@@ -11,7 +11,7 @@ Chromium).
 
 The normative wire (server face, consumer/daemon peering, checkpoint policy, failure
 semantics, acceptance) is owned by **one** repo, and it is not this one:
-`soksak-contract-terminal` (`~/.soksak-dev/contracts/soksak-contract-terminal`). It owns
+`soksak-contract-terminal`. It owns
 `SPEC.md`, the corpus, the declared reference states, and the assertions this unit is graded by.
 This unit implements that contract; it does not restate it.
 
@@ -38,10 +38,9 @@ upstream source directly. The commit is pinned on purpose. libghostty-vt declare
 stable but its *API signatures* are still in flux and may break without warning; the pin
 is what keeps that churn out of this unit until a deliberate bump.
 
-`build.rs` resolves the archive by declaration first (`SOKSAK_GHOSTTY_VT_LIB`), then by
-the vendor convention (`../../vendor/ghostty/zig-out/lib`). It fails loudly with the
-build command when the archive is absent — it never links silently against something
-else. The engine's `lib` directory ships a dylib next to the archive and the macOS linker
+`build.rs` resolves the archive only from the declared `SOKSAK_GHOSTTY_VT_LIB` SDK
+directory. It fails loudly when the archive or provenance is absent — it never guesses a
+checkout or links silently against something else. The engine's `lib` directory ships a dylib next to the archive and the macOS linker
 prefers the dylib, so `build.rs` stages the archive alone into `OUT_DIR` and links that:
 the sidecar binary carries the engine rather than hunting for a shared library at runtime.
 
@@ -106,8 +105,8 @@ reading only the style would lose the background of blank colored regions.
 ## The gate
 
 **This unit passes when `scripts/gate.sh` passes, and by no other means.** One command, all of
-it blocking: the seven fixtures against the contract's declared reference states, the unit tests, the
-real-daemon integration, and the performance budgets (SPEC.md §14.2). The benchmark is ignored
+it blocking: the seven fixtures against the contract's declared reference states, the unit tests, and
+the performance budgets (SPEC.md §14.2). The benchmark is ignored
 in the ordinary test run — it would slow the development loop — so the gate is what makes the
 budget binding rather than decorative. The contract repo's own `scripts/gate.sh` runs this one
 alongside the other units and adds the guard that only shows when they stand side by side.
@@ -117,9 +116,9 @@ alongside the other units and adds the guard that only shows when they stand sid
 The contract's acceptance suite belongs to the kit, not to this repo. The seven engine-neutral
 restore fixtures live in `soksak-kit-terminal-conformance`, and this unit stands its mirror up
 against them in one line (`tests/conformance.rs`). GREEN on that shared suite is the unit's
-gate — and with no copy here, there is nothing to drift. Real-daemon integration
-(`tests/ptyd_integration.rs`, driven by `scripts/e2e/ptyd-integration.sh`) exercises the
-tee→mirror→checkpoint round trip against an isolated `soksak-ptyd` binary.
+gate — and with no copy here, there is nothing to drift. Installed PTY and recovery-sidecar
+composition belongs to the terminal acceptance repository, which installs both products through
+Core and verifies warm and archived restore across every terminal plugin.
 
 ## Qualification verdict
 
