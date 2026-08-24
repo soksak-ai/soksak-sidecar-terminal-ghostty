@@ -35,9 +35,9 @@ if (JSON.stringify(releaseTargets) !== JSON.stringify(dependencyTargets)) {
 for (const target of dependencyTargets) {
   const archive = target.includes("windows") ? "ghostty-vt-static.lib" : "libghostty-vt.a";
   const expected = [
-    `targets/${target}/lib/${archive}`,
-    `targets/${target}/source-commit.txt`,
-    `targets/${target}/zig-version.txt`,
+    { path: `targets/${target}/lib/${archive}`, type: "file" },
+    { path: `targets/${target}/source-commit.txt`, type: "file" },
+    { path: `targets/${target}/zig-version.txt`, type: "file" },
   ];
   if (JSON.stringify(dependency.targets[target].outputs) !== JSON.stringify(expected)) {
     throw new Error(`Ghostty outputs differ for ${target}`);

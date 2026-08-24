@@ -20,7 +20,9 @@ if (resolution.target !== target || !Array.isArray(resolution.outputs) || resolu
   throw new Error("resolved dependency does not match the receipt target");
 }
 const root = path.resolve(args.get("--output-root"));
-const outputs = resolution.outputs.map((relative) => {
+const outputs = resolution.outputs.map((output) => {
+  if (output.type !== "file") throw new Error(`Ghostty SDK output must be a file: ${output.path}`);
+  const relative = output.path;
   const absolute = path.resolve(root, ...relative.split("/"));
   if (!absolute.startsWith(`${root}${path.sep}`)) throw new Error(`output escapes root: ${relative}`);
   const stat = fs.lstatSync(absolute);
@@ -28,7 +30,7 @@ const outputs = resolution.outputs.map((relative) => {
     throw new Error(`output must be a regular file: ${relative}`);
   }
   const bytes = fs.readFileSync(absolute);
-  return { path: relative, size: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") };
+  return { path: relative, type: "file", size: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") };
 });
 const receipt = {
   schema: "soksak-build-dependency-receipt-v1",
