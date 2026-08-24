@@ -43,6 +43,9 @@ requireText(`working-directory: ${ownerPath}`, "owner working directory");
 requireText(`${ownerPath}/\${{ steps.archive.outputs.asset }}`, "artifact upload path");
 requireText("GH_TOKEN: ${{ steps.release-token.outputs.token }}", "GitHub CLI release token");
 if (!stage.includes("absolute candidate output")) throw new Error("stage-built does not permit isolated absolute output");
+for (const value of ["staged binary conflicts", "staged manifest conflicts"]) {
+  if (!stage.includes(value)) throw new Error(`stage-built is not idempotent: ${value}`);
+}
 
 for (const { target, runner } of targets) {
   requireText(`target: ${target}`, "release target");
