@@ -53,6 +53,14 @@ for (const target of ["preflight", "prepare", "build", "verify", "stage"]) {
   if (!new RegExp(`^${target}:`, "m").test(makefile)) throw new Error(`Makefile target is missing: ${target}`);
 }
 if (!makefile.includes("TARGET")) throw new Error("Makefile does not require an explicit TARGET");
+for (const command of [
+  "soksak-validate build-dependencies",
+  "scripts/prepare-ghostty-sdk.sh",
+  "SOKSAK_BUILD_DEPENDENCY_ROOT=",
+  "soksak-validate build-receipt",
+]) {
+  if (!makefile.includes(command)) throw new Error(`Makefile command is missing: ${command}`);
+}
 if (!workflow.includes('make stage TARGET="${{ matrix.target }}"')) throw new Error("release workflow does not call the owner Make target");
 if (build.includes("SOKSAK_GHOSTTY_VT_LIB")) throw new Error("build.rs still exposes the raw SDK path input");
 if (!build.includes("SOKSAK_BUILD_DEPENDENCY_ROOT")) throw new Error("build.rs does not consume the Make-owned SDK root");
