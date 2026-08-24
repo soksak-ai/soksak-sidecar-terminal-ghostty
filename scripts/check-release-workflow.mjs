@@ -10,6 +10,8 @@ const cargo = read("Cargo.toml");
 const manifest = JSON.parse(read("sidecar.json"));
 const dependency = JSON.parse(read("build-dependencies.json")).dependencies[0];
 const targets = JSON.parse(read("release/targets.json"));
+const makefile = read("Makefile");
+const gate = read("scripts/gate.sh");
 const stage = read("scripts/stage-built.sh");
 const ownerPath = `soksak-sidecars/${manifest.id}`;
 const requireText = (value, label) => {
@@ -43,6 +45,7 @@ requireText(`working-directory: ${ownerPath}`, "owner working directory");
 requireText(`${ownerPath}/\${{ steps.archive.outputs.asset }}`, "artifact upload path");
 requireText("GH_TOKEN: ${{ steps.release-token.outputs.token }}", "GitHub CLI release token");
 if (!stage.includes("absolute candidate output")) throw new Error("stage-built does not permit isolated absolute output");
+if (!/^benchmark:/m.test(makefile) || /--test bench|performance budget/.test(gate)) throw new Error("benchmark ownership is not separated from verification");
 for (const value of ["staged binary conflicts", "staged manifest conflicts"]) {
   if (!stage.includes(value)) throw new Error(`stage-built is not idempotent: ${value}`);
 }
