@@ -1,25 +1,32 @@
 use std::fs;
 
-const COMMIT: &str = "9ae02a326f62bd88f7f5508cf1807c67e7775cb5";
-const ZIG: &str = "0.16.0";
-
 #[test]
-fn sdk_provenance_is_identical_in_build_docs_and_release() {
-    let build = fs::read_to_string("build.rs").expect("read build.rs");
-    let readme = fs::read_to_string("README.md").expect("read README.md");
-    let workflow = fs::read_to_string(".github/workflows/release.yml").expect("read workflow");
-    for (name, source) in [
-        ("build.rs", build),
-        ("README.md", readme),
-        ("release.yml", workflow),
+fn external_sdk_metadata_has_one_owner() {
+    let raw = fs::read_to_string("build-dependencies.json").expect("read build dependencies");
+    let document: serde_json::Value = serde_json::from_str(&raw).expect("parse build dependencies");
+    let dependencies = document["dependencies"]
+        .as_array()
+        .expect("dependencies must be an array");
+    assert_eq!(dependencies.len(), 1);
+    let dependency = &dependencies[0];
+    assert_eq!(dependency["id"], "ghostty-vt-sdk");
+    let repository = dependency["repository"].as_str().expect("repository");
+    let commit = dependency["commit"].as_str().expect("commit");
+    let zig = dependency["tools"]["zig"].as_str().expect("Zig version");
+
+    for name in [
+        "Makefile",
+        "build.rs",
+        "README.md",
+        ".github/workflows/release.yml",
     ] {
-        assert!(
-            source.contains(COMMIT),
-            "{name} does not contain the exact Ghostty commit"
-        );
-        assert!(
-            source.contains(ZIG),
-            "{name} does not contain the exact Zig version"
-        );
+        let source =
+            fs::read_to_string(name).unwrap_or_else(|error| panic!("read {name}: {error}"));
+        for duplicated in [repository, commit, zig] {
+            assert!(
+                !source.contains(duplicated),
+                "{name} duplicates build-dependencies.json metadata"
+            );
+        }
     }
 }

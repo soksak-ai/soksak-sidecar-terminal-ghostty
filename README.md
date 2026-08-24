@@ -19,28 +19,26 @@ This unit implements that contract; it does not restate it.
 
 The engine is a C library, not a crate: `build.rs` links the static archive
 `libghostty-vt.a`, and the seat (`src/engine.rs`) calls its C ABI. The archive is not
-vendored into this repo — it is built from the ghostty source:
+vendored into this repo. `build-dependencies.json` is the single owner of the source repository,
+exact commit, Zig version, supported target triples, and target-namespaced outputs. Make consumes
+that declaration; neither the workflow nor `build.rs` repeats its values.
 
-| Requirement | Value |
-| --- | --- |
-| Zig | **0.16.0** (ghostty's `minimum_zig_version`) |
-| ghostty source | declared source **`min-median-max/ghostty`**, branch **`libghostty-vt-0.1.0-dev`**, pinned at commit **`9ae02a326f62bd88f7f5508cf1807c67e7775cb5`** |
-| Build command | `zig build -Demit-lib-vt=true -Doptimize=ReleaseFast -Dcpu=baseline` |
-| Archive | `<ghostty>/zig-out/lib/libghostty-vt.a` |
+```sh
+make prepare TARGET=aarch64-apple-darwin
+make build TARGET=aarch64-apple-darwin
+make verify TARGET=aarch64-apple-darwin
+make stage TARGET=aarch64-apple-darwin OUT=dist
+```
 
-The SDK root also contains `source-commit.txt` and `zig-version.txt`. The build rejects an archive
-without those exact provenance values. A Linux archive built without ReleaseFast measured
+`prepare` materializes an exact clean source checkout, builds ReleaseFast with a portable CPU
+baseline, writes the target archive and provenance files, and verifies a byte receipt. Repeating
+the command revalidates and reuses the same output. A Linux archive built without ReleaseFast measured
 0.482 MB/s against 79.218 MB/s daemon demand and lost 65,615,783 bytes; the pinned ReleaseFast
 archive measured 125.572 MB/s, zero gap bytes and a visible tail marker on 2026-08-22.
 
-Release builds fetch only the declared source revision. The commit is pinned on purpose.
-upstream source directly. The commit is pinned on purpose. libghostty-vt declares that its *functionality* is
-stable but its *API signatures* are still in flux and may break without warning; the pin
-is what keeps that churn out of this unit until a deliberate bump.
-
-`build.rs` resolves the archive only from the declared `SOKSAK_GHOSTTY_VT_LIB` SDK
-directory. It fails loudly when the archive or provenance is absent — it never guesses a
-checkout or links silently against something else. The engine's `lib` directory ships a dylib next to the archive and the macOS linker
+`build.rs` accepts only the Make-owned build-dependency root, selects the receipt matching Cargo's
+exact target, and rejects a missing or symbolic archive. It never accepts a raw library path,
+guesses a checkout, or links silently against another installation. The engine's `lib` directory ships a dylib next to the archive and the macOS linker
 prefers the dylib, so `build.rs` stages the archive alone into `OUT_DIR` and links that:
 the sidecar binary carries the engine rather than hunting for a shared library at runtime.
 
@@ -104,11 +102,11 @@ reading only the style would lose the background of blank colored regions.
 
 ## The gate
 
-**This unit passes when `scripts/gate.sh` passes, and by no other means.** One command, all of
+**This unit passes when `make verify TARGET=<native-target>` passes, and by no other means.** One command, all of
 it blocking: the seven fixtures against the contract's declared reference states, the unit tests, and
 the performance budgets (SPEC.md §14.2). The benchmark is ignored
 in the ordinary test run — it would slow the development loop — so the gate is what makes the
-budget binding rather than decorative. The contract repo's own `scripts/gate.sh` runs this one
+budget binding rather than decorative. The contract repo invokes this owner command
 alongside the other units and adds the guard that only shows when they stand side by side.
 
 ## Acceptance
