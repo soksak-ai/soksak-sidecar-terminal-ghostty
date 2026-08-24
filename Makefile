@@ -3,7 +3,7 @@ SHELL := /bin/sh
 BUILD_DEPENDENCY_ROOT := target/build-dependencies/ghostty-vt-sdk
 OUT ?= dist
 
-.PHONY: require-target preflight prepare build verify stage
+.PHONY: require-target preflight prepare build verify stage benchmark
 
 require-target:
 	@test '$(origin TARGET)' = 'command line' && test -n '$(TARGET)' || { echo 'TARGET must be an explicit Make command-line variable' >&2; exit 2; }
@@ -25,3 +25,8 @@ verify: build
 
 stage: build
 	@SOKSAK_BUILD_DEPENDENCY_ROOT='$(CURDIR)/$(BUILD_DEPENDENCY_ROOT)' scripts/stage-built.sh '$(OUT)' '$(TARGET)'
+
+benchmark: verify
+	@case '$(BENCH_OUT)' in /*) ;; *) echo 'BENCH_OUT must be an explicit absolute output directory' >&2; exit 2 ;; esac
+	@test -x "$$SOKSAK_PTYD_BIN" || { echo 'SOKSAK_PTYD_BIN must name the product-owned PTY executable' >&2; exit 2; }
+	@SOKSAK_BUILD_DEPENDENCY_ROOT='$(CURDIR)/$(BUILD_DEPENDENCY_ROOT)' SOKSAK_BENCH_OUT='$(BENCH_OUT)' cargo test --locked --release --target '$(TARGET)' --test bench -- --ignored --nocapture
