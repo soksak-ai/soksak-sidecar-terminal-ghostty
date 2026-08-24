@@ -78,8 +78,8 @@ if find "$transaction/targets/$target" -type l -print -quit | grep -q .; then
   exit 79
 fi
 mkdir -p "$transaction/receipts"
-node "$root/scripts/write-build-receipt.mjs" --resolution "$resolution" --target "$target" \
-  --output-root "$transaction" --out "$transaction/receipts/$target.json"
+soksak-validate build-receipt-create "$root/build-dependencies.json" --dependency ghostty-vt-sdk \
+  --target "$target" --output-root "$transaction" --out "$transaction/receipts/$target.json"
 soksak-validate build-receipt "$transaction/receipts/$target.json" \
   --dependencies "$root/build-dependencies.json" --output-root "$transaction"
 
