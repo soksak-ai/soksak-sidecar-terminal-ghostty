@@ -10,6 +10,7 @@ const cargo = read("Cargo.toml");
 const manifest = JSON.parse(read("sidecar.json"));
 const dependency = JSON.parse(read("build-dependencies.json")).dependencies[0];
 const targets = JSON.parse(read("release/targets.json"));
+const stage = read("scripts/stage-built.sh");
 const ownerPath = `soksak-sidecars/${manifest.id}`;
 const requireText = (value, label) => {
   if (!workflow.includes(value)) throw new Error(`release workflow is missing ${label}: ${value}`);
@@ -41,6 +42,7 @@ requireText(`path: ${ownerPath}`, "owner checkout path");
 requireText(`working-directory: ${ownerPath}`, "owner working directory");
 requireText(`${ownerPath}/\${{ steps.archive.outputs.asset }}`, "artifact upload path");
 requireText("GH_TOKEN: ${{ steps.release-token.outputs.token }}", "GitHub CLI release token");
+if (!stage.includes("absolute candidate output")) throw new Error("stage-built does not permit isolated absolute output");
 
 for (const { target, runner } of targets) {
   requireText(`target: ${target}`, "release target");
