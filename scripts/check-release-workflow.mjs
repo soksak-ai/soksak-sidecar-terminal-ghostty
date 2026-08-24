@@ -4,55 +4,53 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const workflow = fs.readFileSync(path.join(root, ".github/workflows/release.yml"), "utf8");
-const manifest = JSON.parse(fs.readFileSync(path.join(root, "sidecar.json"), "utf8"));
+const read = (name) => fs.readFileSync(path.join(root, name), "utf8");
+const workflow = read(".github/workflows/release.yml");
+const cargo = read("Cargo.toml");
+const manifest = JSON.parse(read("sidecar.json"));
+const dependency = JSON.parse(read("build-dependencies.json")).dependencies[0];
+const targets = JSON.parse(read("release/targets.json"));
 const ownerPath = `soksak-sidecars/${manifest.id}`;
-const targets = JSON.parse(fs.readFileSync(path.join(root, "release/targets.json"), "utf8"));
-const requireText = (value, label) => { if (!workflow.includes(value)) throw new Error(`release workflow is missing ${label}: ${value}`); };
-const cargo = fs.readFileSync(path.join(root, "Cargo.toml"), "utf8");
-const stage = fs.readFileSync(path.join(root, "stage.sh"), "utf8");
-const zigInstaller = fs.readFileSync(path.join(root, "scripts/install-zig.sh"), "utf8");
+const requireText = (value, label) => {
+  if (!workflow.includes(value)) throw new Error(`release workflow is missing ${label}: ${value}`);
+};
+
 if (!/^edition = "2024"$/m.test(cargo)) throw new Error("Rust packages must use edition 2024");
 if (/\bpath\s*=\s*"\.\.\//.test(cargo)) throw new Error("Cargo dependencies must not require sibling checkouts");
-if (!cargo.includes('rev = "f2f48219bde7a981bf4dd18ee193599639c65fe5"')) throw new Error("Cargo must pin the terminal sidecar kit commit");
-if (!cargo.includes('rev = "cab0691a1a01fca7436ac29f6cc2850245788ea6"')) throw new Error("Cargo must pin the terminal contract commit");
-requireText("https://github.com/soksak-ai/soksak-spec/releases/download/v0.0.27/soksak-ai-plugin-spec-0.0.27.tgz", "immutable spec package");
-requireText("a3991634079056d0066de9ffc1af1bac6d65ecf1eb1c72e3619f8fb136d4c513", "spec package digest");
-requireText("node-version-file: soksak-sidecars/soksak-sidecar-terminal-ghostty/.dependency/spec-package/package.json", "Node owner file");
-requireText("--spec-package .dependency/spec-package", "package validator input");
-if (/path:\s+soksak-(?:kits|contracts)\//.test(workflow)) throw new Error("Cargo dependencies must not be staged as sibling repositories");
-if (workflow.includes("repository: soksak-ai/soksak-spec")) throw new Error("release workflow must not checkout the spec source");
-if (workflow.includes("pnpm/action-setup")) throw new Error("release workflow must not rebuild the spec package");
-requireText("./scripts/install-zig.sh", "exact Zig installer");
-requireText("https://github.com/min-median-max/ghostty.git", "public Ghostty fork");
-requireText("libghostty-vt-0.1.0-dev", "public Ghostty work branch");
-if (workflow.includes("soksak/libghostty") || workflow.includes("min-median-max/libghostty")) throw new Error("Ghostty branch name repeats an owner namespace");
-requireText('ghostty="$RUNNER_TEMP/ghostty-source"', "short SDK build root");
-requireText('test "$(git -C "$ghostty" rev-parse HEAD)" = 9ae02a326f62bd88f7f5508cf1807c67e7775cb5', "exact source commit check");
-if (workflow.includes("https://github.com/ghostty-org/ghostty.git")) throw new Error("release workflow fetches upstream Ghostty directly");
-requireText("-Dcpu=baseline", "portable CPU baseline");
-requireText("./scripts/release-smoke.sh", "native staged executable smoke");
-if (workflow.includes("mlugg/setup-zig")) throw new Error("Node 20 Zig action is forbidden");
-if (!zigInstaller.includes('\\( -name zig -o -name zig.exe \\)')) throw new Error("Zig installer must use a portable find expression");
-requireText(`path: ${ownerPath}`, "owner checkout path");
-requireText(`working-directory: ${ownerPath}`, "owner working directory");
-requireText(`${ownerPath}/\${{ steps.archive.outputs.asset }}`, "artifact upload path");
-requireText(".dependency/spec-package/release-template/", "immutable package tools");
-for (const obsolete of ["release/source-dependencies.json", "release/dependencies.json"]) {
-  if (fs.existsSync(path.join(root, obsolete))) throw new Error(`${obsolete} is obsolete`);
+if (workflow.includes(dependency.repository) || workflow.includes(dependency.commit) || workflow.includes(dependency.tools.zig)) {
+  throw new Error("release workflow duplicates build-dependencies.json metadata");
 }
-for (const { target, runner } of targets) { requireText(`target: ${target}`, "release target"); requireText(`runner: ${runner}`, "release runner"); }
+requireText("spec_url:", "explicit spec URL input");
+requireText("spec_sha256:", "explicit spec digest input");
+requireText("required: true", "required release-train input");
+requireText("${{ inputs.spec_url }}", "injected spec URL");
+requireText("${{ inputs.spec_sha256 }}", "injected spec digest");
+if (workflow.includes("repository: soksak-ai/soksak-spec")) throw new Error("workflow must not checkout spec source");
+requireText("mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29", "pinned verified Zig installer");
+requireText("version: ${{ steps.build-dependency.outputs.zig }}", "manifest-owned Zig version");
+requireText("use-cache: false", "clean transitive Zig dependency validation");
+requireText('make verify TARGET="${{ matrix.target }}"', "owner Make verification");
+requireText('make stage TARGET="${{ matrix.target }}" OUT=dist', "owner Make staging");
+requireText("build-dependency-receipt.json", "SDK provenance in the release archive");
+requireText("release-template/sidecar/pack-target.mjs", "canonical target packer");
 requireText("release-template/sidecar/build-release.mjs", "canonical release builder");
 requireText("release-template/sidecar/validate-with-spec.mjs", "canonical release validator");
 requireText("release-template/publish-canonical-release.mjs", "canonical immutable publisher");
-requireText("cp dist/sidecar.json package/sidecar.json", "target-specific manifest packaging");
-requireText("cp dist/soksak-sidecar-terminal-ghostty* package/dist/", "target-specific executable packaging");
-if (!stage.includes('staged="$name$ext"')) throw new Error("stage.sh must select the target executable name");
-if (/"version":\s*"[0-9]+\.[0-9]+\.[0-9]+"/.test(stage)) throw new Error("stage.sh must not duplicate the sidecar version");
-if (!stage.includes('sed "s#\\\"process\\\": \\\"dist/$name\\\"#\\\"process\\\": \\\"dist/$staged\\\"#" sidecar.json')) {
-  throw new Error("stage.sh must derive the staged manifest from sidecar.json");
-}
+requireText("choco install make --version=4.4.1", "addressed Windows Make environment");
+requireText(`path: ${ownerPath}`, "owner checkout path");
+requireText(`working-directory: ${ownerPath}`, "owner working directory");
+requireText(`${ownerPath}/\${{ steps.archive.outputs.asset }}`, "artifact upload path");
 requireText("GH_TOKEN: ${{ steps.release-token.outputs.token }}", "GitHub CLI release token");
-for (const duplicate of ["build-release.mjs", "release-contract.mjs", "validate-with-spec.mjs"]) if (fs.existsSync(path.join(root, "scripts", duplicate))) throw new Error(`local spec copy is forbidden: scripts/${duplicate}`);
-if (fs.existsSync(path.join(root, "validation/spec-validator.json"))) throw new Error("local spec pin copy is forbidden");
+
+for (const { target, runner } of targets) {
+  requireText(`target: ${target}`, "release target");
+  requireText(`runner: ${runner}`, "release runner");
+}
+for (const action of workflow.matchAll(/^\s*-?\s*uses:\s*([^\s#]+)/gm)) {
+  if (!/^[^@\s]+@[a-f0-9]{40}$/.test(action[1])) throw new Error(`workflow action is not commit-pinned: ${action[1]}`);
+}
+for (const obsolete of ["stage.sh", "SOKSAK_GHOSTTY_VT_LIB", "scripts/install-zig.sh", "libghostty-vt-0.1.0-dev"]) {
+  if (workflow.includes(obsolete)) throw new Error(`release workflow retains an obsolete build path: ${obsolete}`);
+}
+
 console.log("release workflow contract: passed");

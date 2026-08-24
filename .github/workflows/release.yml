@@ -1,17 +1,16 @@
-# 릴리즈 — main 에서 수동 dispatch 시 다섯 플랫폼 타깃마다 사이드카 dist 아카이브를 빌드해
-# owner-immutable GitHub Release 자산으로 올린다. 각 타깃은 그 타깃의 네이티브 러너에서
-# 빌드한다. 엔진(libghostty-vt.a)은 pinned ghostty 소스에서 Zig 로 네이티브 빌드해 build.rs 가
-# 링크한다(Zig 0.16.0 = ghostty minimum_zig_version, exact commit = README 빌드 요구).
-# 버전/태그는 소유 manifest(Cargo.toml)에서 유도하고 sidecar.json 과의 일치를
-# build-release 가 판정한다.
-# publish 는 매트릭스 전체를 내려받아 소유 릴리즈 manifest(release.json)와 conformance 리포트
-# 3종을 합성하고, 핀된 공개 soksak-spec 검증기로 판정한 뒤에만 자산으로 올린다 — 서명 레지스트리
-# 인덱스가 릴리즈를 실을 수 있는 것은 이 manifest 뿐이다.
-# 소비측(플러그인 manifest sidecars[].reach.fetch.url[platform] + sha256[platform])이 자산을 집는다.
 name: release
 
 on:
   workflow_dispatch:
+    inputs:
+      spec_url:
+        description: Exact immutable soksak-spec package URL from the release train
+        required: true
+        type: string
+      spec_sha256:
+        description: SHA-256 of the exact soksak-spec package
+        required: true
+        type: string
 
 concurrency:
   group: release-${{ github.repository }}
@@ -40,71 +39,71 @@ jobs:
     runs-on: ${{ matrix.runner }}
     defaults:
       run:
+        shell: bash
         working-directory: soksak-sidecars/soksak-sidecar-terminal-ghostty
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           path: soksak-sidecars/soksak-sidecar-terminal-ghostty
+          persist-credentials: false
+      - name: Inject the exact spec validation tool
+        run: |
+          case "${{ inputs.spec_url }}" in
+            https://github.com/soksak-ai/soksak-spec/releases/download/v*/soksak-ai-plugin-spec-*.tgz) ;;
+            *) echo "spec_url is not an immutable soksak-spec release asset" >&2; exit 1 ;;
+          esac
+          digest="${{ inputs.spec_sha256 }}"
+          test "${#digest}" -eq 64
+          case "$digest" in *[!a-f0-9]*) echo "spec_sha256 is invalid" >&2; exit 1 ;; esac
+          mkdir -p .dependency/spec-package
+          curl -fsSL "${{ inputs.spec_url }}" -o .dependency/soksak-spec.tgz
+          actual="$(if command -v sha256sum >/dev/null 2>&1; then sha256sum .dependency/soksak-spec.tgz; else shasum -a 256 .dependency/soksak-spec.tgz; fi | awk '{print $1}')"
+          test "$actual" = "$digest"
+          tar -xzf .dependency/soksak-spec.tgz -C .dependency/spec-package --strip-components=1
+          test -z "$(find .dependency/spec-package -type l -print -quit)"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version-file: soksak-sidecars/soksak-sidecar-terminal-ghostty/.dependency/spec-package/package.json
+      - name: Expose the injected validator command
+        run: |
+          npm install --global --ignore-scripts .dependency/soksak-spec.tgz
+          soksak-validate --help >/dev/null
       - id: rust-toolchain
-        shell: bash
         run: echo "channel=$(sed -n 's/^channel = \"\(.*\)\"/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
       - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
         with:
           toolchain: ${{ steps.rust-toolchain.outputs.channel }}
           targets: ${{ matrix.target }}
-      - name: Install the exact Zig toolchain
-        shell: bash
-        run: ./scripts/install-zig.sh
+      - id: build-dependency
+        run: |
+          echo "zig=$(node -e 'const v=require("./build-dependencies.json");process.stdout.write(v.dependencies[0].tools.zig)')" >> "$GITHUB_OUTPUT"
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29
+        with:
+          version: ${{ steps.build-dependency.outputs.zig }}
+          use-cache: false
+      - if: runner.os == 'Windows'
+        run: choco install make --version=4.4.1 --no-progress --yes
       - id: identity
-        shell: bash
         run: |
           ver="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
-          case "$ver" in ''|*[!0-9.]*) echo "invalid version: $ver" >&2; exit 1;; esac
+          case "$ver" in ''|*[!0-9.]*) echo "invalid version: $ver" >&2; exit 1 ;; esac
           echo "version=$ver" >> "$GITHUB_OUTPUT"
-      - name: Build libghostty-vt from pinned ghostty source (Zig)
-        shell: bash
+      - name: Run the owner gate and stage the addressed native binary
         run: |
-          set -euo pipefail
-          ghostty="$RUNNER_TEMP/ghostty-source"
-          git init -q "$ghostty"
-          git -C "$ghostty" remote add origin https://github.com/min-median-max/ghostty.git
-          git -C "$ghostty" fetch -q --depth 1 origin libghostty-vt-0.1.0-dev
-          git -C "$ghostty" -c advice.detachedHead=false checkout -q FETCH_HEAD
-          test "$(git -C "$ghostty" rev-parse HEAD)" = 9ae02a326f62bd88f7f5508cf1807c67e7775cb5
-          ( cd "$ghostty" && zig build -Demit-lib-vt=true -Doptimize=ReleaseFast -Dcpu=baseline )
-          printf '%s\n' 9ae02a326f62bd88f7f5508cf1807c67e7775cb5 > "$ghostty/zig-out/source-commit.txt"
-          printf '%s\n' 0.16.0 > "$ghostty/zig-out/zig-version.txt"
-          # ghostty 정적 라이브러리 이름은 플랫폼마다 다르다: Windows 는 ghostty-vt-static.lib
-          # (DLL import lib 과의 충돌 회피, build.zig), 나머지는 libghostty-vt.a. build.rs 가
-          # 같은 규칙으로 링크한다.
-          case "${{ matrix.target }}" in
-            *windows*) test -f "$ghostty/zig-out/lib/ghostty-vt-static.lib" ;;
-            *)         test -f "$ghostty/zig-out/lib/libghostty-vt.a" ;;
-          esac
-          echo "SOKSAK_GHOSTTY_VT_LIB=$ghostty/zig-out/lib" >> "$GITHUB_ENV"
-      - name: Build and stage the release binary for this target
-        shell: bash
-        run: ./stage.sh dist "${{ matrix.target }}"
-      - name: Execute the staged binary on its native release runner
-        shell: bash
+          make verify TARGET="${{ matrix.target }}"
+          make stage TARGET="${{ matrix.target }}" OUT=dist
+      - name: Execute the staged binary on its native runner
         run: ./scripts/release-smoke.sh "${{ matrix.target }}" dist
       - id: archive
-        shell: bash
         run: |
-          ver="${{ steps.identity.outputs.version }}"
-          out="soksak-sidecar-terminal-ghostty-$ver-${{ matrix.target }}.tar.gz"
+          version="${{ steps.identity.outputs.version }}"
+          out="soksak-sidecar-terminal-ghostty-$version-${{ matrix.target }}.tar.gz"
           mkdir -p package/dist
           cp dist/sidecar.json package/sidecar.json
           cp LICENSE THIRD-PARTY-NOTICES package/
           cp dist/soksak-sidecar-terminal-ghostty* package/dist/
-          tar -czf "$out" -C package LICENSE THIRD-PARTY-NOTICES sidecar.json dist
-          # sha256 도구는 러너마다 다르다 — macOS 는 shasum(perl), linux·windows(git-bash)
-          # 는 sha256sum(coreutils). 둘 다 "<hex>  <file>" 형식으로 동일하다.
-          if command -v sha256sum >/dev/null 2>&1; then
-            sha256sum "$out" | tee "$out.sha256"
-          else
-            shasum -a 256 "$out" | tee "$out.sha256"
-          fi
+          cp "target/build-dependencies/ghostty-vt-sdk/receipts/${{ matrix.target }}.json" package/build-dependency-receipt.json
+          node .dependency/spec-package/release-template/sidecar/pack-target.mjs --source package --target "${{ matrix.target }}" --out "$out"
           echo "asset=$out" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
@@ -125,11 +124,19 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           path: soksak-sidecars/soksak-sidecar-terminal-ghostty
-      - name: Install the immutable public spec package
+          persist-credentials: false
+      - name: Inject the exact spec validation tool
         run: |
+          case "${{ inputs.spec_url }}" in
+            https://github.com/soksak-ai/soksak-spec/releases/download/v*/soksak-ai-plugin-spec-*.tgz) ;;
+            *) echo "spec_url is not an immutable soksak-spec release asset" >&2; exit 1 ;;
+          esac
+          digest="${{ inputs.spec_sha256 }}"
+          test "${#digest}" -eq 64
+          case "$digest" in *[!a-f0-9]*) echo "spec_sha256 is invalid" >&2; exit 1 ;; esac
           mkdir -p .dependency/spec-package
-          curl -fsSL https://github.com/soksak-ai/soksak-spec/releases/download/v0.0.27/soksak-ai-plugin-spec-0.0.27.tgz -o .dependency/soksak-spec.tgz
-          echo "a3991634079056d0066de9ffc1af1bac6d65ecf1eb1c72e3619f8fb136d4c513  .dependency/soksak-spec.tgz" | sha256sum -c -
+          curl -fsSL "${{ inputs.spec_url }}" -o .dependency/soksak-spec.tgz
+          test "$(sha256sum .dependency/soksak-spec.tgz | awk '{print $1}')" = "$digest"
           tar -xzf .dependency/soksak-spec.tgz -C .dependency/spec-package --strip-components=1
           test -z "$(find .dependency/spec-package -type l -print -quit)"
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -138,7 +145,7 @@ jobs:
       - id: identity
         run: |
           ver="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
-          case "$ver" in ''|*[!0-9.]*) echo "invalid version: $ver" >&2; exit 1;; esac
+          case "$ver" in ''|*[!0-9.]*) echo "invalid version: $ver" >&2; exit 1 ;; esac
           echo "tag=v$ver" >> "$GITHUB_OUTPUT"
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
@@ -165,5 +172,5 @@ jobs:
           SOKSAK_RELEASE_TOKEN: ${{ steps.release-token.outputs.token }}
           GH_TOKEN: ${{ steps.release-token.outputs.token }}
         run: |
-          test "$(gh api "repos/${{ github.repository }}/immutable-releases" --jq '.enabled and .enforced_by_owner')" = "true" || { echo "owner-enforced immutable releases must be enabled before tagging" >&2; exit 1; }
+          test "$(gh api "repos/${{ github.repository }}/immutable-releases" --jq '.enabled and .enforced_by_owner')" = "true"
           node .dependency/spec-package/release-template/publish-canonical-release.mjs --repository "${{ github.repository }}" --commit "${{ github.sha }}" --artifacts "$GITHUB_WORKSPACE/soksak-sidecars/soksak-sidecar-terminal-ghostty/publish-assets" --manifest "$GITHUB_WORKSPACE/soksak-sidecars/soksak-sidecar-terminal-ghostty/publish-assets/release.json"
