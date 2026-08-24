@@ -1,0 +1,50 @@
+{
+  "schema": "soksak-build-dependencies-v1",
+  "dependencies": [
+    {
+      "id": "ghostty-vt-sdk",
+      "repository": "https://github.com/ghostty-org/ghostty.git",
+      "commit": "9ae02a326f62bd88f7f5508cf1807c67e7775cb5",
+      "tools": {
+        "zig": "0.16.0"
+      },
+      "targets": {
+        "aarch64-apple-darwin": {
+          "outputs": [
+            "targets/aarch64-apple-darwin/lib/libghostty-vt.a",
+            "targets/aarch64-apple-darwin/source-commit.txt",
+            "targets/aarch64-apple-darwin/zig-version.txt"
+          ]
+        },
+        "aarch64-unknown-linux-gnu": {
+          "outputs": [
+            "targets/aarch64-unknown-linux-gnu/lib/libghostty-vt.a",
+            "targets/aarch64-unknown-linux-gnu/source-commit.txt",
+            "targets/aarch64-unknown-linux-gnu/zig-version.txt"
+          ]
+        },
+        "x86_64-apple-darwin": {
+          "outputs": [
+            "targets/x86_64-apple-darwin/lib/libghostty-vt.a",
+            "targets/x86_64-apple-darwin/source-commit.txt",
+            "targets/x86_64-apple-darwin/zig-version.txt"
+          ]
+        },
+        "x86_64-pc-windows-msvc": {
+          "outputs": [
+            "targets/x86_64-pc-windows-msvc/lib/ghostty-vt-static.lib",
+            "targets/x86_64-pc-windows-msvc/source-commit.txt",
+            "targets/x86_64-pc-windows-msvc/zig-version.txt"
+          ]
+        },
+        "x86_64-unknown-linux-gnu": {
+          "outputs": [
+            "targets/x86_64-unknown-linux-gnu/lib/libghostty-vt.a",
+            "targets/x86_64-unknown-linux-gnu/source-commit.txt",
+            "targets/x86_64-unknown-linux-gnu/zig-version.txt"
+          ]
+        }
+      }
+    }
+  ]
+}
