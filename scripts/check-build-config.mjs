@@ -47,7 +47,10 @@ for (const target of dependencyTargets) {
   }
 }
 
-for (const [name, source] of [["Makefile", makefile], ["release workflow", workflow], ["build.rs", build]]) {
+for (const [name, source] of [
+  ["Makefile", makefile], ["release workflow", workflow], ["build.rs", build],
+  ["preflight", preflight], ["prepare", prepare], ["Zig resolver", resolver],
+]) {
   for (const duplicated of [dependency.repository, dependency.commit, dependency.tools.zig]) {
     if (source.includes(duplicated)) throw new Error(`${name} duplicates build-dependencies.json metadata`);
   }

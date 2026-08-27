@@ -30,6 +30,7 @@ requireText("${{ inputs.spec_url }}", "injected spec URL");
 requireText("${{ inputs.spec_sha256 }}", "injected spec digest");
 if (workflow.includes("repository: soksak-ai/soksak-spec")) throw new Error("workflow must not checkout spec source");
 requireText("mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29", "pinned verified Zig installer");
+requireText('v.dependencies[0].tools.zig', "manifest Zig version projection");
 requireText("version: ${{ steps.build-dependency.outputs.zig }}", "manifest-owned Zig version");
 requireText("use-cache: false", "clean transitive Zig dependency validation");
 requireText('make verify TARGET="${{ matrix.target }}"', "owner Make verification");
