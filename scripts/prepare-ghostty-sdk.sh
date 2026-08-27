@@ -36,6 +36,7 @@ soksak-validate build-dependencies "$root/build-dependencies.json" --dependency 
 repository=$(node -e 'const v=require(process.argv[1]);process.stdout.write(v.repository)' "$resolution")
 commit=$(node -e 'const v=require(process.argv[1]);process.stdout.write(v.commit)' "$resolution")
 zig_version=$(node -e 'const v=require(process.argv[1]);process.stdout.write(v.tools.zig)' "$resolution")
+zig_bin=$("$root/scripts/resolve-declared-zig.sh" "$target" "$zig_version")
 source=$build_root/sources/$commit
 
 if [ -e "$source" ]; then
@@ -67,7 +68,7 @@ else
   git -C "$source" archive --format=tar "$commit" | tar -xf - -C "$stage"
   cp "$resolution" "$stage/.soksak-build-resolution.json"
 fi
-(cd "$stage" && zig build -Demit-lib-vt=true -Doptimize=ReleaseFast -Dcpu=baseline)
+(cd "$stage" && "$zig_bin" build -Demit-lib-vt=true -Doptimize=ReleaseFast -Dcpu=baseline)
 case "$target" in *windows*) archive=ghostty-vt-static.lib ;; *) archive=libghostty-vt.a ;; esac
 [ -f "$stage/zig-out/lib/$archive" ] || { echo "Ghostty SDK archive is missing: $archive" >&2; exit 79; }
 cp "$stage/zig-out/lib/$archive" "$transaction/targets/$target/lib/$archive"
