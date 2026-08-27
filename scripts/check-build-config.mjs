@@ -10,8 +10,6 @@ const makefile = read("Makefile");
 const workflow = read(".github/workflows/release.yml");
 const build = read("build.rs");
 const prepare = read("scripts/prepare-ghostty-sdk.sh");
-const preflight = read("scripts/check-build-environment.sh");
-const resolver = read("scripts/resolve-declared-zig.sh");
 
 if (manifest.schema !== "soksak-build-dependencies-v1" || !Array.isArray(manifest.dependencies) || manifest.dependencies.length !== 1) {
   throw new Error("build-dependencies.json must declare one external SDK dependency");
@@ -65,9 +63,6 @@ for (const command of [
   if (!makefile.includes(command)) throw new Error(`Makefile command is missing: ${command}`);
 }
 if (!prepare.includes("soksak-validate build-receipt-create")) throw new Error("Ghostty prepare does not use the canonical receipt creator");
-if (!preflight.includes('resolve-declared-zig.sh "$target" "$zig_expected"')) throw new Error("preflight does not select the declared Zig executable");
-if (!prepare.includes('resolve-declared-zig.sh" "$target" "$zig_version"')) throw new Error("prepare does not select the declared Zig executable");
-if (!resolver.includes("ZIG_TOOLCHAIN_REFUSED") || !resolver.includes("[ ! -L")) throw new Error("Zig resolver does not reject symbolic tool roots and executables");
 if (!workflow.includes('make stage TARGET="${{ matrix.target }}"')) throw new Error("release workflow does not call the owner Make target");
 if (build.includes("SOKSAK_GHOSTTY_VT_LIB")) throw new Error("build.rs still exposes the raw SDK path input");
 if (!build.includes("SOKSAK_BUILD_DEPENDENCY_ROOT")) throw new Error("build.rs does not consume the Make-owned SDK root");

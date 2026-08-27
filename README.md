@@ -22,11 +22,6 @@ The engine is a C library, not a crate: `build.rs` links the static archive
 vendored into this repo. `build-dependencies.json` is the single owner of the source repository,
 exact commit, Zig version, supported target triples, and target-namespaced outputs. Make consumes
 that declaration; neither the workflow nor `build.rs` repeats its values.
-The owner commands accept only an exact Zig executable already exposed on `PATH`, or discover the
-target/version-addressed regular executable below `${SOKSAK_ZIG_ROOT}` (default
-`${XDG_DATA_HOME}/zig` or `${HOME}/.local/zig`). An ambient older Zig is ignored, symbolic tool
-roots and executables are refused, and preflight prints the absolute executable it selected. The
-release workflow reads the same declared version before installing Zig.
 
 ```sh
 make prepare TARGET=aarch64-apple-darwin

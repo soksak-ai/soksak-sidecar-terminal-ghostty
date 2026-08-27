@@ -24,8 +24,7 @@ esac
 rust_expected=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' rust-toolchain.toml)
 rust_actual=$(rustc --version 2>/dev/null | awk '{print $2}' || true)
 rust_host=$(rustc -vV 2>/dev/null | sed -n 's/^host: //p' || true)
-zig_bin=$(scripts/resolve-declared-zig.sh "$target" "$zig_expected") || exit 78
-zig_actual=$("$zig_bin" version 2>/dev/null || true)
+zig_actual=$(zig version 2>/dev/null || true)
 node_actual_platform=$(node -p process.platform 2>/dev/null || true)
 node_actual_arch=$(node -p process.arch 2>/dev/null || true)
 if [ "$target" != "$host_target" ] || [ -z "$rust_expected" ] || [ "$rust_actual" != "$rust_expected" ] || \
@@ -37,5 +36,5 @@ if [ "$target" != "$host_target" ] || [ -z "$rust_expected" ] || [ "$rust_actual
   exit 78
 fi
 
-printf 'BUILD_ENVIRONMENT_READY target=%s rust=%s rustHost=%s zig=%s zigPath=%s nodeRuntime=%s/%s\n' \
-  "$target" "$rust_actual" "$rust_host" "$zig_actual" "$zig_bin" "$node_actual_platform" "$node_actual_arch"
+printf 'BUILD_ENVIRONMENT_READY target=%s rust=%s rustHost=%s zig=%s nodeRuntime=%s/%s\n' \
+  "$target" "$rust_actual" "$rust_host" "$zig_actual" "$node_actual_platform" "$node_actual_arch"
