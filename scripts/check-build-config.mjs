@@ -54,6 +54,12 @@ for (const target of ["preflight", "prepare", "build", "verify", "stage"]) {
   if (!new RegExp(`^${target}:`, "m").test(makefile)) throw new Error(`Makefile target is missing: ${target}`);
 }
 if (!makefile.includes("TARGET")) throw new Error("Makefile does not require an explicit TARGET");
+if (!makefile.includes("BUILD_DEPENDENCY_COMMIT := $(shell node -p")) {
+  throw new Error("Makefile does not derive the Ghostty cache identity from build-dependencies.json");
+}
+if (!makefile.includes("BUILD_DEPENDENCY_ROOT := target/build-dependencies/ghostty-vt-sdk/$(BUILD_DEPENDENCY_COMMIT)")) {
+  throw new Error("Ghostty SDK cache is not content-addressed by its source commit");
+}
 for (const command of [
   "soksak-validate build-dependencies",
   "scripts/prepare-ghostty-sdk.sh",
