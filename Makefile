@@ -16,6 +16,7 @@ prepare: preflight
 	@scripts/prepare-ghostty-sdk.sh '$(TARGET)' '$(BUILD_DEPENDENCY_ROOT)'
 
 build: prepare
+	@node scripts/check-cursor-contract.mjs
 	@SOKSAK_BUILD_DEPENDENCY_ROOT='$(CURDIR)/$(BUILD_DEPENDENCY_ROOT)' cargo build --locked --release --target '$(TARGET)' --bin soksak-sidecar-terminal-ghostty
 
 verify: build
