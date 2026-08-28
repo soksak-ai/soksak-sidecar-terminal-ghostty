@@ -91,7 +91,7 @@ jobs:
       - name: Run the owner gate and stage the addressed native binary
         run: |
           make verify TARGET="${{ matrix.target }}"
-          make stage TARGET="${{ matrix.target }}" OUT=dist
+          make stage TARGET="${{ matrix.target }}" STAGE=dist
       - name: Execute the staged binary on its native runner
         run: ./scripts/release-smoke.sh "${{ matrix.target }}" dist
       - id: archive
