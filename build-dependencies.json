@@ -3,8 +3,8 @@
   "dependencies": [
     {
       "id": "ghostty-vt-sdk",
-      "repository": "https://github.com/ghostty-org/ghostty.git",
-      "commit": "9ae02a326f62bd88f7f5508cf1807c67e7775cb5",
+      "repository": "https://github.com/min-median-max/ghostty.git",
+      "commit": "6c46012ec717e8756bb32c46e7be536d815bbb2c",
       "tools": {
         "zig": "0.16.0"
       },
