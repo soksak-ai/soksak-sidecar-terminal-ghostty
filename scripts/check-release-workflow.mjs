@@ -20,6 +20,8 @@ const requireText = (value, label) => {
 
 if (!/^edition = "2024"$/m.test(cargo)) throw new Error("Rust packages must use edition 2024");
 if (/\bpath\s*=\s*"\.\.\//.test(cargo)) throw new Error("Cargo dependencies must not require sibling checkouts");
+if (!/^lock: preflight$/m.test(makefile) || !makefile.includes("cargo metadata --format-version 1")) throw new Error("Makefile must own Cargo lock regeneration");
+if (!read("README.md").includes("make lock TARGET=")) throw new Error("README must document the owner lock target");
 if (workflow.includes(dependency.repository) || workflow.includes(dependency.commit) || workflow.includes(dependency.tools.zig)) {
   throw new Error("release workflow duplicates build-dependencies.json metadata");
 }
