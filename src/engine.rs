@@ -27,7 +27,8 @@
 
 use soksak_kit_sidecar_terminal::mirror::TerminalEngine;
 pub use soksak_kit_sidecar_terminal::mirror::{
-    TerminalCell as GridCell, TerminalColor as ColorSnap, TerminalModes as ModeSnap,
+    TerminalCell as GridCell, TerminalColor as ColorSnap, TerminalCursorAnimation,
+    TerminalCursorShape, TerminalCursorStyle, TerminalModes as ModeSnap,
 };
 use std::ffi::c_void;
 use std::os::raw::c_int;
@@ -76,6 +77,7 @@ mod ffi {
 
     /// 불투명 터미널 핸들.
     pub type Terminal = *mut c_void;
+    pub type RenderState = *mut c_void;
     /// 불투명 셀·행 값(u64).
     pub type Cell = u64;
     pub type Row = u64;
@@ -96,6 +98,16 @@ mod ffi {
     pub const DATA_ACTIVE_SCREEN: c_int = 6;
     pub const DATA_SCROLLBACK_ROWS: c_int = 15;
     pub const DATA_MODE: c_int = 37;
+
+    // GhosttyRenderStateData
+    pub const RENDER_DATA_CURSOR_VISUAL_STYLE: c_int = 10;
+    pub const RENDER_DATA_CURSOR_BLINKING: c_int = 12;
+
+    // GhosttyRenderStateCursorVisualStyle
+    pub const CURSOR_STYLE_BAR: c_int = 0;
+    pub const CURSOR_STYLE_BLOCK: c_int = 1;
+    pub const CURSOR_STYLE_UNDERLINE: c_int = 2;
+    pub const CURSOR_STYLE_BLOCK_HOLLOW: c_int = 3;
 
     // GhosttyTerminalScreen
     pub const SCREEN_ALTERNATE: c_int = 1;
@@ -258,6 +270,12 @@ mod ffi {
         ) -> c_int;
         pub fn ghostty_terminal_vt_write(terminal: Terminal, data: *const u8, len: usize);
         pub fn ghostty_terminal_get(terminal: Terminal, data: c_int, out: *mut c_void) -> c_int;
+        pub fn ghostty_render_state_new(allocator: *const c_void, state: *mut RenderState)
+        -> c_int;
+        pub fn ghostty_render_state_free(state: RenderState);
+        pub fn ghostty_render_state_update(state: RenderState, terminal: Terminal) -> c_int;
+        pub fn ghostty_render_state_get(state: RenderState, data: c_int, out: *mut c_void)
+        -> c_int;
         pub fn ghostty_terminal_grid_ref(
             terminal: Terminal,
             point: Point,
@@ -328,6 +346,7 @@ extern "C" fn cb_device_attributes(
 /// 프로브(`suppressed_replies`)이기도 하다.
 pub struct Engine {
     term: ffi::Terminal,
+    render: ffi::RenderState,
     // 콜백 userdata — 힙에 고정된 주소를 터미널에 넘겼다. Engine 이 움직여도 이 주소는
     // 그대로다(Box). 터미널보다 오래 살아야 하므로 Drop 순서가 중요하다(아래 Drop 참조).
     counters: Box<Counters>,
@@ -349,6 +368,12 @@ impl Engine {
         assert!(
             r == ffi::SUCCESS && !term.is_null(),
             "ghostty_terminal_new failed (result {r})"
+        );
+        let mut render: ffi::RenderState = std::ptr::null_mut();
+        let render_result = unsafe { ffi::ghostty_render_state_new(std::ptr::null(), &mut render) };
+        assert!(
+            render_result == ffi::SUCCESS && !render.is_null(),
+            "ghostty_render_state_new failed (result {render_result})"
         );
 
         let mut counters = Box::new(Counters { suppressed: 0 });
@@ -372,6 +397,7 @@ impl Engine {
 
         Engine {
             term,
+            render,
             counters,
             cols,
             rows,
@@ -423,6 +449,48 @@ impl Engine {
             ffi::ghostty_terminal_get(self.term, ffi::DATA_CURSOR_Y, (&mut y as *mut u16).cast());
         }
         (y as usize, x as usize)
+    }
+
+    pub fn cursor_style(&self) -> TerminalCursorStyle {
+        let update = unsafe { ffi::ghostty_render_state_update(self.render, self.term) };
+        assert_eq!(update, ffi::SUCCESS, "Ghostty render-state update failed");
+        let mut visual_style: c_int = ffi::CURSOR_STYLE_BLOCK;
+        let mut blinking = false;
+        let style_result = unsafe {
+            ffi::ghostty_render_state_get(
+                self.render,
+                ffi::RENDER_DATA_CURSOR_VISUAL_STYLE,
+                (&mut visual_style as *mut c_int).cast(),
+            )
+        };
+        let blink_result = unsafe {
+            ffi::ghostty_render_state_get(
+                self.render,
+                ffi::RENDER_DATA_CURSOR_BLINKING,
+                (&mut blinking as *mut bool).cast(),
+            )
+        };
+        assert_eq!(
+            style_result,
+            ffi::SUCCESS,
+            "Ghostty cursor style read failed"
+        );
+        assert_eq!(
+            blink_result,
+            ffi::SUCCESS,
+            "Ghostty cursor blink read failed"
+        );
+        let shape = match visual_style {
+            ffi::CURSOR_STYLE_BAR => TerminalCursorShape::Bar,
+            ffi::CURSOR_STYLE_UNDERLINE => TerminalCursorShape::Underline,
+            ffi::CURSOR_STYLE_BLOCK | ffi::CURSOR_STYLE_BLOCK_HOLLOW => TerminalCursorShape::Block,
+            value => panic!("unknown Ghostty cursor visual style: {value}"),
+        };
+        TerminalCursorStyle { shape, blinking }
+    }
+
+    pub fn cursor_animation(&self) -> TerminalCursorAnimation {
+        TerminalCursorAnimation { interval_ms: 600 }
     }
 
     /// 복원 창의 스크롤백 행 수 — 계약이 재현하는 창은 최신 [`MIRROR_SCROLLBACK_LINES`] 행이다.
@@ -546,7 +614,11 @@ impl Drop for Engine {
     fn drop(&mut self) {
         // 터미널을 먼저 놓는다 — 그 뒤엔 콜백이 불릴 수 없으므로 counters 해제가 안전하다
         // (필드는 이 함수가 끝난 뒤 선언 순서로 떨어진다).
-        unsafe { ffi::ghostty_terminal_free(self.term) };
+        unsafe {
+            ffi::ghostty_render_state_free(self.render);
+            ffi::ghostty_terminal_free(self.term);
+        }
+        self.render = std::ptr::null_mut();
         self.term = std::ptr::null_mut();
     }
 }
@@ -572,6 +644,12 @@ impl TerminalEngine for Engine {
     }
     fn cursor(&self) -> (usize, usize) {
         Engine::cursor(self)
+    }
+    fn cursor_style(&self) -> TerminalCursorStyle {
+        Engine::cursor_style(self)
+    }
+    fn cursor_animation(&self) -> TerminalCursorAnimation {
+        Engine::cursor_animation(self)
     }
     fn alt_active(&self) -> bool {
         Engine::alt_active(self)
