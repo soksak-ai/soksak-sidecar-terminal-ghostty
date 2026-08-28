@@ -3,7 +3,7 @@ SHELL := /bin/sh
 BUILD_DEPENDENCY_ROOT := target/build-dependencies/ghostty-vt-sdk
 OUT ?= dist
 
-.PHONY: require-target preflight prepare build verify stage benchmark
+.PHONY: require-target preflight lock prepare build verify stage benchmark
 
 require-target:
 	@test '$(origin TARGET)' = 'command line' && test -n '$(TARGET)' || { echo 'TARGET must be an explicit Make command-line variable' >&2; exit 2; }
@@ -11,6 +11,9 @@ require-target:
 preflight: require-target
 	@scripts/check-build-environment.sh '$(TARGET)'
 	@soksak-validate build-dependencies build-dependencies.json --dependency ghostty-vt-sdk --target '$(TARGET)' >/dev/null
+
+lock: preflight
+	@cargo metadata --format-version 1 > /dev/null
 
 prepare: preflight
 	@scripts/prepare-ghostty-sdk.sh '$(TARGET)' '$(BUILD_DEPENDENCY_ROOT)'

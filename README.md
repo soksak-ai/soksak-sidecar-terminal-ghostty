@@ -24,11 +24,15 @@ exact commit, Zig version, supported target triples, and target-namespaced outpu
 that declaration; neither the workflow nor `build.rs` repeats its values.
 
 ```sh
+make lock TARGET=aarch64-apple-darwin
 make prepare TARGET=aarch64-apple-darwin
 make build TARGET=aarch64-apple-darwin
 make verify TARGET=aarch64-apple-darwin
 make stage TARGET=aarch64-apple-darwin OUT=dist
 ```
+
+`make lock` is the only owner operation that projects changed Cargo declarations into
+`Cargo.lock`. Normal build and verification remain `--locked`.
 
 `prepare` materializes an exact clean source checkout, builds ReleaseFast with a portable CPU
 baseline, writes the target archive and provenance files, and verifies a byte receipt. Repeating
