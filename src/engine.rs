@@ -28,7 +28,8 @@
 use soksak_kit_sidecar_terminal::mirror::TerminalEngine;
 pub use soksak_kit_sidecar_terminal::mirror::{
     TerminalCell as GridCell, TerminalColor as ColorSnap, TerminalCursorAnimation,
-    TerminalCursorShape, TerminalCursorStyle, TerminalModes as ModeSnap,
+    TerminalCursorShape, TerminalCursorStyle, TerminalModes as ModeSnap, TerminalRgb,
+    TerminalThemeOverrides,
 };
 use std::ffi::c_void;
 use std::os::raw::c_int;
@@ -85,6 +86,7 @@ mod ffi {
     // GhosttyResult
     pub const SUCCESS: c_int = 0;
     pub const OUT_OF_SPACE: c_int = -3;
+    pub const NO_VALUE: c_int = -4;
 
     // GhosttyTerminalOption
     pub const OPT_USERDATA: c_int = 0;
@@ -98,6 +100,10 @@ mod ffi {
     pub const DATA_ACTIVE_SCREEN: c_int = 6;
     pub const DATA_SCROLLBACK_ROWS: c_int = 15;
     pub const DATA_MODE: c_int = 37;
+    pub const DATA_COLOR_FOREGROUND_OVERRIDE: c_int = 40;
+    pub const DATA_COLOR_BACKGROUND_OVERRIDE: c_int = 41;
+    pub const DATA_COLOR_CURSOR_OVERRIDE: c_int = 42;
+    pub const DATA_COLOR_PALETTE_OVERRIDES: c_int = 43;
 
     // GhosttyRenderStateData
     pub const RENDER_DATA_CURSOR_VISUAL_STYLE: c_int = 10;
@@ -150,6 +156,12 @@ mod ffi {
         pub r: u8,
         pub g: u8,
         pub b: u8,
+    }
+
+    #[repr(C)]
+    pub struct PaletteOverrides {
+        pub colors: [ColorRgb; 256],
+        pub mask: [u64; 4],
     }
 
     #[repr(C)]
@@ -493,6 +505,44 @@ impl Engine {
         TerminalCursorAnimation { interval_ms: 600 }
     }
 
+    fn color_override(&self, data: c_int) -> Option<TerminalRgb> {
+        let mut color = ffi::ColorRgb { r: 0, g: 0, b: 0 };
+        let result = unsafe {
+            ffi::ghostty_terminal_get(self.term, data, (&mut color as *mut ffi::ColorRgb).cast())
+        };
+        match result {
+            ffi::SUCCESS => Some(TerminalRgb { r: color.r, g: color.g, b: color.b }),
+            ffi::NO_VALUE => None,
+            value => panic!("Ghostty color override read failed: {value}"),
+        }
+    }
+
+    pub fn theme_overrides(&self) -> TerminalThemeOverrides {
+        let mut palette = ffi::PaletteOverrides {
+            colors: [ffi::ColorRgb { r: 0, g: 0, b: 0 }; 256],
+            mask: [0; 4],
+        };
+        let result = unsafe {
+            ffi::ghostty_terminal_get(
+                self.term,
+                ffi::DATA_COLOR_PALETTE_OVERRIDES,
+                (&mut palette as *mut ffi::PaletteOverrides).cast(),
+            )
+        };
+        assert_eq!(result, ffi::SUCCESS, "Ghostty palette override read failed");
+        let mut overrides = TerminalThemeOverrides::default();
+        overrides.foreground = self.color_override(ffi::DATA_COLOR_FOREGROUND_OVERRIDE);
+        overrides.background = self.color_override(ffi::DATA_COLOR_BACKGROUND_OVERRIDE);
+        overrides.cursor = self.color_override(ffi::DATA_COLOR_CURSOR_OVERRIDE);
+        for (index, slot) in overrides.ansi.iter_mut().enumerate() {
+            if palette.mask[index >> 6] & (1u64 << (index & 63)) != 0 {
+                let color = palette.colors[index];
+                *slot = Some(TerminalRgb { r: color.r, g: color.g, b: color.b });
+            }
+        }
+        overrides
+    }
+
     /// 복원 창의 스크롤백 행 수 — 계약이 재현하는 창은 최신 [`MIRROR_SCROLLBACK_LINES`] 행이다.
     /// 엔진은 예산이 허락하는 만큼 그보다 더 들고 있을 수 있으나(바이트 예산·페이지 단위 보존),
     /// 좌석은 창을 넘겨 내보내지 않는다 — 직렬화기가 페인트에 싣는 행 수의 상한이다.
@@ -650,6 +700,9 @@ impl TerminalEngine for Engine {
     }
     fn cursor_animation(&self) -> TerminalCursorAnimation {
         Engine::cursor_animation(self)
+    }
+    fn theme_overrides(&self) -> TerminalThemeOverrides {
+        Engine::theme_overrides(self)
     }
     fn alt_active(&self) -> bool {
         Engine::alt_active(self)
@@ -836,7 +889,6 @@ fn palette_snap(i: u8) -> ColorSnap {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soksak_kit_sidecar_terminal::mirror::TerminalRgb;
 
     // 엔진은 질의에 응답을 만들 수 있다 — 좌석이 응답 경로(write_pty·device_attributes)를
     // 계수-후-폐기로 막았다. 각 질의를 신선한 엔진에 먹여 계수가 오르는지 곧바로 단언한다.
