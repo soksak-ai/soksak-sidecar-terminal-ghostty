@@ -836,6 +836,7 @@ fn palette_snap(i: u8) -> ColorSnap {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use soksak_kit_sidecar_terminal::mirror::TerminalRgb;
 
     // 엔진은 질의에 응답을 만들 수 있다 — 좌석이 응답 경로(write_pty·device_attributes)를
     // 계수-후-폐기로 막았다. 각 질의를 신선한 엔진에 먹여 계수가 오르는지 곧바로 단언한다.
@@ -957,5 +958,23 @@ mod tests {
             oldest.starts_with("L1"),
             "line -4 is the oldest history row (got {oldest:?})"
         );
+    }
+
+    #[test]
+    fn engine_exposes_raw_osc_color_overrides() {
+        let mut engine = Engine::new(4, 2);
+        engine.feed(
+            b"\x1b]4;1;#123456\x07\x1b]10;#abcdef\x07\x1b]11;#223344\x07\x1b]12;#654321\x07",
+        );
+        let colors = TerminalEngine::theme_overrides(&engine);
+        assert_eq!(colors.ansi[1], Some(TerminalRgb { r: 0x12, g: 0x34, b: 0x56 }));
+        assert_eq!(colors.foreground, Some(TerminalRgb { r: 0xab, g: 0xcd, b: 0xef }));
+        assert_eq!(colors.background, Some(TerminalRgb { r: 0x22, g: 0x33, b: 0x44 }));
+        assert_eq!(colors.cursor, Some(TerminalRgb { r: 0x65, g: 0x43, b: 0x21 }));
+
+        engine.feed(b"\x1b]104;1\x07\x1b]110\x07\x1b]111\x07\x1b]112\x07");
+        let reset = TerminalEngine::theme_overrides(&engine);
+        assert_eq!(reset.ansi[1], None);
+        assert_eq!((reset.foreground, reset.background, reset.cursor), (None, None, None));
     }
 }
