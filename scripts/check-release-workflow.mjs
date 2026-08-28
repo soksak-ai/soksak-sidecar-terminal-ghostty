@@ -22,6 +22,10 @@ if (!/^edition = "2024"$/m.test(cargo)) throw new Error("Rust packages must use 
 if (/\bpath\s*=\s*"\.\.\//.test(cargo)) throw new Error("Cargo dependencies must not require sibling checkouts");
 if (!/^lock: preflight$/m.test(makefile) || !makefile.includes("cargo metadata --format-version 1")) throw new Error("Makefile must own Cargo lock regeneration");
 if (!read("README.md").includes("make lock TARGET=")) throw new Error("README must document the owner lock target");
+for (const target of ["require-tooling", "require-out", "release", "attest"]) if (!new RegExp(`^${target}:`, "m").test(makefile)) throw new Error(`Makefile target is missing: ${target}`);
+if (!/^STAGE \?= dist$/m.test(makefile) || /^OUT \?= dist$/m.test(makefile)) throw new Error("Makefile must separate STAGE from release OUT");
+for (const value of ["command -v soksak-sdk", "SDK_VERSION", "soksak-sdk pack-target", "soksak-sdk package", "soksak-sdk attest"]) if (!makefile.includes(value)) throw new Error(`Makefile release boundary is missing: ${value}`);
+if (!read("README.md").includes("make attest TARGET=") || !read("README.md").includes("OUT=/absolute/")) throw new Error("README must document owner attestation");
 if (workflow.includes(dependency.repository) || workflow.includes(dependency.commit) || workflow.includes(dependency.tools.zig)) {
   throw new Error("release workflow duplicates build-dependencies.json metadata");
 }
@@ -35,7 +39,7 @@ requireText("mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29", "pinned 
 requireText("version: ${{ steps.build-dependency.outputs.zig }}", "manifest-owned Zig version");
 requireText("use-cache: false", "clean transitive Zig dependency validation");
 requireText('make verify TARGET="${{ matrix.target }}"', "owner Make verification");
-requireText('make stage TARGET="${{ matrix.target }}" OUT=dist', "owner Make staging");
+requireText('make stage TARGET="${{ matrix.target }}" STAGE=dist', "owner Make staging");
 requireText("build-dependency-receipt.json", "SDK provenance in the release archive");
 requireText("release-template/sidecar/pack-target.mjs", "canonical target packer");
 requireText("release-template/sidecar/build-release.mjs", "canonical release builder");
