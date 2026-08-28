@@ -2,7 +2,7 @@ SHELL := /bin/sh
 
 BUILD_DEPENDENCY_ROOT := target/build-dependencies/ghostty-vt-sdk
 STAGE ?= dist
-SDK_VERSION := 0.0.13
+SDK_VERSION := 0.0.14
 
 .PHONY: require-target preflight lock prepare build verify stage benchmark require-tooling require-out release attest
 
