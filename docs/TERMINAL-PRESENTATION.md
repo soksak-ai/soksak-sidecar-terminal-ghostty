@@ -11,6 +11,12 @@ Blink scheduling is renderer policy. This provider declares the 600 ms interval 
 renderer. The common terminal Kit schedules frames only while the semantic cursor is visible and
 blinking.
 
+The pinned libghostty-vt C API exposes raw OSC foreground, background and cursor overrides plus a
+256-entry palette override mask. The Sidecar maps those values directly to
+`TerminalThemeOverrides`; it does not infer override presence by comparing effective and default
+colors. OSC reset returns no value or clears a mask bit, so the common renderer reveals the current
+host base theme and repaints before publishing theme state.
+
 `tests/conformance.rs::cursor_style` runs the contract-owned DECSCUSR, DEC mode 12, DECTCEM, and
 warm rehydrate cases. `make verify TARGET=aarch64-apple-darwin` verifies only this provider and its
 declared Ghostty SDK artifact.
