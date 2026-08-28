@@ -8,6 +8,7 @@ const read = (name) => fs.readFileSync(path.join(root, name), "utf8");
 const workflow = read(".github/workflows/release.yml");
 const cargo = read("Cargo.toml");
 const manifest = JSON.parse(read("sidecar.json"));
+if (manifest.processRole !== "sidecar-terminal-ghostty") throw new Error("Sidecar manifest must declare its project-independent processRole");
 const dependency = JSON.parse(read("build-dependencies.json")).dependencies[0];
 const targets = JSON.parse(read("release/targets.json"));
 const makefile = read("Makefile");
