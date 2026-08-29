@@ -17,6 +17,13 @@ The pinned libghostty-vt C API exposes raw OSC foreground, background and cursor
 colors. OSC reset returns no value or clears a mask bit, so the common renderer reveals the current
 host base theme and repaints before publishing theme state.
 
+Pointer reporting also stays in Ghostty. The sidecar owns one `GhosttyMouseEncoder` and reusable
+`GhosttyMouseEvent` per terminal engine, refreshes encoder mode and format directly from the live
+`GhosttyTerminal`, and passes action, button, modifiers, and cell position through the C API. The
+adapter does not reconstruct X10, UTF-8, SGR, or motion bytes. `tests/pointer_input.rs` pins SGR
+press, held motion, release, and no-button any-motion results. Selection and wheel support remain
+separate open rows; an explicit refusal is not evidence for either.
+
 `tests/conformance.rs::cursor_style` runs the contract-owned DECSCUSR, DEC mode 12, DECTCEM, and
 warm rehydrate cases. `make verify TARGET=aarch64-apple-darwin` verifies only this provider and its
 declared Ghostty SDK artifact.

@@ -27,6 +27,7 @@
 
 use soksak_kit_sidecar_terminal::mirror::TerminalEngine;
 pub use soksak_kit_sidecar_terminal::mirror::{
+    EnginePointerInput, EngineSelectionPoint, EngineWheelInput, SelectionKind, SelectionModifiers,
     TerminalCell as GridCell, TerminalColor as ColorSnap, TerminalCursorAnimation,
     TerminalCursorShape, TerminalCursorStyle, TerminalModes as ModeSnap, TerminalRgb,
     TerminalThemeOverrides,
@@ -79,6 +80,8 @@ mod ffi {
     /// 불투명 터미널 핸들.
     pub type Terminal = *mut c_void;
     pub type RenderState = *mut c_void;
+    pub type MouseEvent = *mut c_void;
+    pub type MouseEncoder = *mut c_void;
     /// 불투명 셀·행 값(u64).
     pub type Cell = u64;
     pub type Row = u64;
@@ -117,6 +120,19 @@ mod ffi {
 
     // GhosttyTerminalScreen
     pub const SCREEN_ALTERNATE: c_int = 1;
+
+    pub const MOUSE_ACTION_PRESS: c_int = 0;
+    pub const MOUSE_ACTION_RELEASE: c_int = 1;
+    pub const MOUSE_ACTION_MOTION: c_int = 2;
+    pub const MOUSE_BUTTON_LEFT: c_int = 1;
+    pub const MOUSE_BUTTON_RIGHT: c_int = 2;
+    pub const MOUSE_BUTTON_MIDDLE: c_int = 3;
+    pub const MOUSE_ENCODER_OPT_SIZE: c_int = 2;
+    pub const MOUSE_ENCODER_OPT_ANY_BUTTON_PRESSED: c_int = 3;
+    pub const MOD_SHIFT: u16 = 1 << 0;
+    pub const MOD_CONTROL: u16 = 1 << 1;
+    pub const MOD_ALT: u16 = 1 << 2;
+    pub const MOD_META: u16 = 1 << 3;
 
     // GhosttyPointTag
     pub const POINT_TAG_ACTIVE: c_int = 0;
@@ -189,6 +205,26 @@ mod ffi {
     pub struct Point {
         pub tag: c_int,
         pub value: PointValue,
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct MousePosition {
+        pub x: f32,
+        pub y: f32,
+    }
+
+    #[repr(C)]
+    pub struct MouseEncoderSize {
+        pub size: usize,
+        pub screen_width: u32,
+        pub screen_height: u32,
+        pub cell_width: u32,
+        pub cell_height: u32,
+        pub padding_top: u32,
+        pub padding_bottom: u32,
+        pub padding_right: u32,
+        pub padding_left: u32,
     }
 
     /// sized struct — 호출자가 `size` 를 채운다.
@@ -304,6 +340,34 @@ mod ffi {
         ) -> c_int;
         pub fn ghostty_cell_get(cell: Cell, data: c_int, out: *mut c_void) -> c_int;
         pub fn ghostty_row_get(row: Row, data: c_int, out: *mut c_void) -> c_int;
+        pub fn ghostty_mouse_event_new(allocator: *const c_void, event: *mut MouseEvent) -> c_int;
+        pub fn ghostty_mouse_event_free(event: MouseEvent);
+        pub fn ghostty_mouse_event_set_action(event: MouseEvent, action: c_int);
+        pub fn ghostty_mouse_event_set_button(event: MouseEvent, button: c_int);
+        pub fn ghostty_mouse_event_clear_button(event: MouseEvent);
+        pub fn ghostty_mouse_event_set_mods(event: MouseEvent, modifiers: u16);
+        pub fn ghostty_mouse_event_set_position(event: MouseEvent, position: MousePosition);
+        pub fn ghostty_mouse_encoder_new(
+            allocator: *const c_void,
+            encoder: *mut MouseEncoder,
+        ) -> c_int;
+        pub fn ghostty_mouse_encoder_free(encoder: MouseEncoder);
+        pub fn ghostty_mouse_encoder_setopt(
+            encoder: MouseEncoder,
+            option: c_int,
+            value: *const c_void,
+        );
+        pub fn ghostty_mouse_encoder_setopt_from_terminal(
+            encoder: MouseEncoder,
+            terminal: Terminal,
+        );
+        pub fn ghostty_mouse_encoder_encode(
+            encoder: MouseEncoder,
+            event: MouseEvent,
+            output: *mut u8,
+            output_len: usize,
+            written: *mut usize,
+        ) -> c_int;
     }
 }
 
@@ -359,6 +423,8 @@ extern "C" fn cb_device_attributes(
 pub struct Engine {
     term: ffi::Terminal,
     render: ffi::RenderState,
+    mouse_event: ffi::MouseEvent,
+    mouse_encoder: ffi::MouseEncoder,
     // 콜백 userdata — 힙에 고정된 주소를 터미널에 넘겼다. Engine 이 움직여도 이 주소는
     // 그대로다(Box). 터미널보다 오래 살아야 하므로 Drop 순서가 중요하다(아래 Drop 참조).
     counters: Box<Counters>,
@@ -387,6 +453,20 @@ impl Engine {
             render_result == ffi::SUCCESS && !render.is_null(),
             "ghostty_render_state_new failed (result {render_result})"
         );
+        let mut mouse_event: ffi::MouseEvent = std::ptr::null_mut();
+        let event_result = unsafe { ffi::ghostty_mouse_event_new(std::ptr::null(), &mut mouse_event) };
+        assert!(
+            event_result == ffi::SUCCESS && !mouse_event.is_null(),
+            "ghostty_mouse_event_new failed (result {event_result})"
+        );
+        let mut mouse_encoder: ffi::MouseEncoder = std::ptr::null_mut();
+        let encoder_result = unsafe {
+            ffi::ghostty_mouse_encoder_new(std::ptr::null(), &mut mouse_encoder)
+        };
+        assert!(
+            encoder_result == ffi::SUCCESS && !mouse_encoder.is_null(),
+            "ghostty_mouse_encoder_new failed (result {encoder_result})"
+        );
 
         let mut counters = Box::new(Counters { suppressed: 0 });
         let userdata: *mut c_void = (&mut *counters as *mut Counters).cast();
@@ -407,13 +487,17 @@ impl Engine {
             );
         }
 
-        Engine {
+        let mut engine = Engine {
             term,
             render,
+            mouse_event,
+            mouse_encoder,
             counters,
             cols,
             rows,
-        }
+        };
+        engine.configure_mouse_size();
+        engine
     }
 
     /// 세션 출력 바이트 소비. 응답 요구 시퀀스는 콜백에서 계수되고 버려진다 — 나가는 바이트는
@@ -430,6 +514,106 @@ impl Engine {
         self.rows = rows.max(1);
         // 헤드리스라 픽셀 격자는 없다(px 는 이미지 프로토콜·size report 전용).
         unsafe { ffi::ghostty_terminal_resize(self.term, self.cols, self.rows, 0, 0) };
+        self.configure_mouse_size();
+    }
+
+    fn configure_mouse_size(&mut self) {
+        let size = ffi::MouseEncoderSize {
+            size: std::mem::size_of::<ffi::MouseEncoderSize>(),
+            screen_width: u32::from(self.cols),
+            screen_height: u32::from(self.rows),
+            cell_width: 1,
+            cell_height: 1,
+            padding_top: 0,
+            padding_bottom: 0,
+            padding_right: 0,
+            padding_left: 0,
+        };
+        unsafe {
+            ffi::ghostty_mouse_encoder_setopt(
+                self.mouse_encoder,
+                ffi::MOUSE_ENCODER_OPT_SIZE,
+                (&size as *const ffi::MouseEncoderSize).cast(),
+            );
+        }
+    }
+
+    pub fn pointer_input(&mut self, input: EnginePointerInput) -> Result<Vec<u8>, String> {
+        let action = match input.phase {
+            soksak_kit_sidecar_terminal::mirror::PointerPhase::Down => ffi::MOUSE_ACTION_PRESS,
+            soksak_kit_sidecar_terminal::mirror::PointerPhase::Up => ffi::MOUSE_ACTION_RELEASE,
+            soksak_kit_sidecar_terminal::mirror::PointerPhase::Move => ffi::MOUSE_ACTION_MOTION,
+        };
+        let mut modifiers = 0u16;
+        if input.modifiers.shift { modifiers |= ffi::MOD_SHIFT; }
+        if input.modifiers.control { modifiers |= ffi::MOD_CONTROL; }
+        if input.modifiers.alt { modifiers |= ffi::MOD_ALT; }
+        if input.modifiers.meta { modifiers |= ffi::MOD_META; }
+        let pressed = input.phase != soksak_kit_sidecar_terminal::mirror::PointerPhase::Up
+            && input.button != soksak_kit_sidecar_terminal::mirror::PointerButton::None;
+        unsafe {
+            ffi::ghostty_mouse_encoder_setopt_from_terminal(self.mouse_encoder, self.term);
+            ffi::ghostty_mouse_encoder_setopt(
+                self.mouse_encoder,
+                ffi::MOUSE_ENCODER_OPT_ANY_BUTTON_PRESSED,
+                (&pressed as *const bool).cast(),
+            );
+            ffi::ghostty_mouse_event_set_action(self.mouse_event, action);
+            match input.button {
+                soksak_kit_sidecar_terminal::mirror::PointerButton::None => {
+                    ffi::ghostty_mouse_event_clear_button(self.mouse_event)
+                }
+                soksak_kit_sidecar_terminal::mirror::PointerButton::Left => {
+                    ffi::ghostty_mouse_event_set_button(self.mouse_event, ffi::MOUSE_BUTTON_LEFT)
+                }
+                soksak_kit_sidecar_terminal::mirror::PointerButton::Middle => {
+                    ffi::ghostty_mouse_event_set_button(self.mouse_event, ffi::MOUSE_BUTTON_MIDDLE)
+                }
+                soksak_kit_sidecar_terminal::mirror::PointerButton::Right => {
+                    ffi::ghostty_mouse_event_set_button(self.mouse_event, ffi::MOUSE_BUTTON_RIGHT)
+                }
+            }
+            ffi::ghostty_mouse_event_set_mods(self.mouse_event, modifiers);
+            ffi::ghostty_mouse_event_set_position(
+                self.mouse_event,
+                ffi::MousePosition {
+                    x: f32::from(input.col) + 0.5,
+                    y: f32::from(input.row) + 0.5,
+                },
+            );
+        }
+        let mut stack = [0u8; 64];
+        let mut written = 0usize;
+        let result = unsafe {
+            ffi::ghostty_mouse_encoder_encode(
+                self.mouse_encoder,
+                self.mouse_event,
+                stack.as_mut_ptr(),
+                stack.len(),
+                &mut written,
+            )
+        };
+        if result == ffi::SUCCESS {
+            return Ok(stack[..written].to_vec());
+        }
+        if result != ffi::OUT_OF_SPACE {
+            return Err(format!("Ghostty mouse encoder failed: {result}"));
+        }
+        let mut output = vec![0u8; written];
+        let retry = unsafe {
+            ffi::ghostty_mouse_encoder_encode(
+                self.mouse_encoder,
+                self.mouse_event,
+                output.as_mut_ptr(),
+                output.len(),
+                &mut written,
+            )
+        };
+        if retry != ffi::SUCCESS {
+            return Err(format!("Ghostty mouse encoder retry failed: {retry}"));
+        }
+        output.truncate(written);
+        Ok(output)
     }
 
     pub fn cols(&self) -> u16 {
@@ -665,10 +849,14 @@ impl Drop for Engine {
         // 터미널을 먼저 놓는다 — 그 뒤엔 콜백이 불릴 수 없으므로 counters 해제가 안전하다
         // (필드는 이 함수가 끝난 뒤 선언 순서로 떨어진다).
         unsafe {
+            ffi::ghostty_mouse_event_free(self.mouse_event);
+            ffi::ghostty_mouse_encoder_free(self.mouse_encoder);
             ffi::ghostty_render_state_free(self.render);
             ffi::ghostty_terminal_free(self.term);
         }
         self.render = std::ptr::null_mut();
+        self.mouse_event = std::ptr::null_mut();
+        self.mouse_encoder = std::ptr::null_mut();
         self.term = std::ptr::null_mut();
     }
 }
@@ -718,6 +906,34 @@ impl TerminalEngine for Engine {
     }
     fn suppressed_replies(&self) -> u64 {
         Engine::suppressed_replies(self)
+    }
+    fn selection_begin(
+        &mut self,
+        _kind: SelectionKind,
+        _point: EngineSelectionPoint,
+        _modifiers: SelectionModifiers,
+    ) -> Result<(), String> {
+        Err("Ghostty selection input is not implemented".into())
+    }
+    fn selection_update(
+        &mut self,
+        _point: EngineSelectionPoint,
+        _modifiers: SelectionModifiers,
+    ) -> Result<(), String> {
+        Err("Ghostty selection input is not implemented".into())
+    }
+    fn selection_clear(&mut self) {}
+    fn selection_text(&self) -> Option<String> {
+        None
+    }
+    fn selection_range(&self, _line: i32) -> Option<(u16, u16)> {
+        None
+    }
+    fn wheel_input(&mut self, _input: EngineWheelInput) -> Result<Vec<u8>, String> {
+        Err("Ghostty wheel input is not implemented".into())
+    }
+    fn pointer_input(&mut self, input: EnginePointerInput) -> Result<Vec<u8>, String> {
+        Engine::pointer_input(self, input)
     }
 }
 

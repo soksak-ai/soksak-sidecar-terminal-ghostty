@@ -10,6 +10,11 @@ const makefile = read("Makefile");
 const workflow = read(".github/workflows/release.yml");
 const build = read("build.rs");
 const prepare = read("scripts/prepare-ghostty-sdk.sh");
+const cargo = read("Cargo.toml");
+
+if (!cargo.includes('soksak-kit-sidecar-terminal = { git = "https://github.com/soksak-ai/soksak-kit-sidecar-terminal", rev = "1863f33176ac40517439c4eb7b749e49d2710ee4"')) {
+  throw new Error("terminal Kit must be pinned to the pointer-aware revision 1863f33176ac40517439c4eb7b749e49d2710ee4");
+}
 
 if (manifest.schema !== "soksak-build-dependencies-v1" || !Array.isArray(manifest.dependencies) || manifest.dependencies.length !== 1) {
   throw new Error("build-dependencies.json must declare one external SDK dependency");
