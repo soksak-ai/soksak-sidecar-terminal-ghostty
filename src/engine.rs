@@ -27,6 +27,7 @@
 
 use soksak_kit_sidecar_terminal::mirror::TerminalEngine;
 pub use soksak_kit_sidecar_terminal::mirror::{
+    EnginePointerInput, EngineSelectionPoint, EngineWheelInput, SelectionKind, SelectionModifiers,
     TerminalCell as GridCell, TerminalColor as ColorSnap, TerminalCursorAnimation,
     TerminalCursorShape, TerminalCursorStyle, TerminalModes as ModeSnap, TerminalRgb,
     TerminalThemeOverrides,
@@ -718,6 +719,34 @@ impl TerminalEngine for Engine {
     }
     fn suppressed_replies(&self) -> u64 {
         Engine::suppressed_replies(self)
+    }
+    fn selection_begin(
+        &mut self,
+        _kind: SelectionKind,
+        _point: EngineSelectionPoint,
+        _modifiers: SelectionModifiers,
+    ) -> Result<(), String> {
+        Err("Ghostty selection input is not implemented".into())
+    }
+    fn selection_update(
+        &mut self,
+        _point: EngineSelectionPoint,
+        _modifiers: SelectionModifiers,
+    ) -> Result<(), String> {
+        Err("Ghostty selection input is not implemented".into())
+    }
+    fn selection_clear(&mut self) {}
+    fn selection_text(&self) -> Option<String> {
+        None
+    }
+    fn selection_range(&self, _line: i32) -> Option<(u16, u16)> {
+        None
+    }
+    fn wheel_input(&mut self, _input: EngineWheelInput) -> Result<Vec<u8>, String> {
+        Err("Ghostty wheel input is not implemented".into())
+    }
+    fn pointer_input(&mut self, _input: EnginePointerInput) -> Result<Vec<u8>, String> {
+        Err("Ghostty pointer input is not implemented".into())
     }
 }
 
