@@ -12,8 +12,8 @@ const build = read("build.rs");
 const prepare = read("scripts/prepare-ghostty-sdk.sh");
 const cargo = read("Cargo.toml");
 
-if (!cargo.includes('soksak-kit-sidecar-terminal = { git = "https://github.com/soksak-ai/soksak-kit-sidecar-terminal", rev = "c89ddd642ae63122e48081bc25e38700094aab02"')) {
-  throw new Error("terminal Kit must be pinned to the focus-presentation revision c89ddd642ae63122e48081bc25e38700094aab02");
+if (!cargo.includes('soksak-kit-sidecar-terminal = { git = "https://github.com/soksak-ai/soksak-kit-sidecar-terminal", rev = "f485b36e6bdd3dad301af3918c631e18d0264de2"')) {
+  throw new Error("terminal Kit must be pinned to the positive-history-scroll revision f485b36e6bdd3dad301af3918c631e18d0264de2");
 }
 
 if (manifest.schema !== "soksak-build-dependencies-v1" || !Array.isArray(manifest.dependencies) || manifest.dependencies.length !== 1) {
