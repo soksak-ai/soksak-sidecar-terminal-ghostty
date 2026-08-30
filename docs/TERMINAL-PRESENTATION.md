@@ -21,8 +21,15 @@ Pointer reporting also stays in Ghostty. The sidecar owns one `GhosttyMouseEncod
 `GhosttyMouseEvent` per terminal engine, refreshes encoder mode and format directly from the live
 `GhosttyTerminal`, and passes action, button, modifiers, and cell position through the C API. The
 adapter does not reconstruct X10, UTF-8, SGR, or motion bytes. `tests/pointer_input.rs` pins SGR
-press, held motion, release, and no-button any-motion results. Selection and wheel support remain
-separate open rows; an explicit refusal is not evidence for either.
+press, held motion, release, and no-button any-motion results.
+
+Wheel mouse reports reuse that public event and encoder with Ghostty buttons four through seven.
+`tests/wheel_input.rs` pins SGR and legacy/UTF-8 output, both axes, repeated steps, position and
+modifiers. Alternate-screen mode 1007 owns a separate application-cursor-key route. Both routes
+validate the live modes again at the engine boundary, so a mode change between Kit routing and
+encoding is refused. Device-unit normalization, fractional accumulation and ordinary scrollback
+remain in the common terminal Kit; there is no provider fallback. Selection remains on Ghostty's
+native selection-gesture and formatter APIs and is pinned separately by `tests/selection.rs`.
 
 `tests/conformance.rs::cursor_style` runs the contract-owned DECSCUSR, DEC mode 12, DECTCEM, and
 warm rehydrate cases. `make verify TARGET=aarch64-apple-darwin` verifies only this provider and its
