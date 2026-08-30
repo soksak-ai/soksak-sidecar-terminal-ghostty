@@ -27,10 +27,10 @@
 
 use soksak_kit_sidecar_terminal::mirror::TerminalEngine;
 pub use soksak_kit_sidecar_terminal::mirror::{
-    EnginePointerInput, EngineSelectionPoint, EngineWheelInput, SelectionKind, SelectionModifiers,
-    TerminalCell as GridCell, TerminalColor as ColorSnap, TerminalCursorAnimation,
-    TerminalCursorShape, TerminalCursorStyle, TerminalModes as ModeSnap, TerminalRgb,
-    TerminalThemeOverrides,
+    EnginePointerInput, EngineSelectionPoint, EngineWheelInput, EngineWheelRoute, SelectionKind,
+    SelectionModifiers, TerminalCell as GridCell, TerminalColor as ColorSnap,
+    TerminalCursorAnimation, TerminalCursorShape, TerminalCursorStyle, TerminalModes as ModeSnap,
+    TerminalRgb, TerminalThemeOverrides,
 };
 use std::ffi::c_void;
 use std::os::raw::c_int;
@@ -143,6 +143,10 @@ mod ffi {
     pub const MOUSE_BUTTON_LEFT: c_int = 1;
     pub const MOUSE_BUTTON_RIGHT: c_int = 2;
     pub const MOUSE_BUTTON_MIDDLE: c_int = 3;
+    pub const MOUSE_BUTTON_FOUR: c_int = 4;
+    pub const MOUSE_BUTTON_FIVE: c_int = 5;
+    pub const MOUSE_BUTTON_SIX: c_int = 6;
+    pub const MOUSE_BUTTON_SEVEN: c_int = 7;
     pub const MOUSE_ENCODER_OPT_SIZE: c_int = 2;
     pub const MOUSE_ENCODER_OPT_ANY_BUTTON_PRESSED: c_int = 3;
     pub const MOD_SHIFT: u16 = 1 << 0;
@@ -665,50 +669,53 @@ impl Engine {
         }
     }
 
-    pub fn pointer_input(&mut self, input: EnginePointerInput) -> Result<Vec<u8>, String> {
-        let action = match input.phase {
-            soksak_kit_sidecar_terminal::mirror::PointerPhase::Down => ffi::MOUSE_ACTION_PRESS,
-            soksak_kit_sidecar_terminal::mirror::PointerPhase::Up => ffi::MOUSE_ACTION_RELEASE,
-            soksak_kit_sidecar_terminal::mirror::PointerPhase::Move => ffi::MOUSE_ACTION_MOTION,
-        };
-        let mut modifiers = 0u16;
-        if input.modifiers.shift { modifiers |= ffi::MOD_SHIFT; }
-        if input.modifiers.control { modifiers |= ffi::MOD_CONTROL; }
-        if input.modifiers.alt { modifiers |= ffi::MOD_ALT; }
-        if input.modifiers.meta { modifiers |= ffi::MOD_META; }
-        let pressed = input.phase != soksak_kit_sidecar_terminal::mirror::PointerPhase::Up
-            && input.button != soksak_kit_sidecar_terminal::mirror::PointerButton::None;
+    fn configure_mouse_event(
+        &mut self,
+        action: c_int,
+        button: Option<c_int>,
+        modifiers: SelectionModifiers,
+        row: u16,
+        col: u16,
+        any_button_pressed: bool,
+    ) {
+        let mut modifier_bits = 0u16;
+        if modifiers.shift {
+            modifier_bits |= ffi::MOD_SHIFT;
+        }
+        if modifiers.control {
+            modifier_bits |= ffi::MOD_CONTROL;
+        }
+        if modifiers.alt {
+            modifier_bits |= ffi::MOD_ALT;
+        }
+        if modifiers.meta {
+            modifier_bits |= ffi::MOD_META;
+        }
         unsafe {
             ffi::ghostty_mouse_encoder_setopt_from_terminal(self.mouse_encoder, self.term);
             ffi::ghostty_mouse_encoder_setopt(
                 self.mouse_encoder,
                 ffi::MOUSE_ENCODER_OPT_ANY_BUTTON_PRESSED,
-                (&pressed as *const bool).cast(),
+                (&any_button_pressed as *const bool).cast(),
             );
             ffi::ghostty_mouse_event_set_action(self.mouse_event, action);
-            match input.button {
-                soksak_kit_sidecar_terminal::mirror::PointerButton::None => {
-                    ffi::ghostty_mouse_event_clear_button(self.mouse_event)
-                }
-                soksak_kit_sidecar_terminal::mirror::PointerButton::Left => {
-                    ffi::ghostty_mouse_event_set_button(self.mouse_event, ffi::MOUSE_BUTTON_LEFT)
-                }
-                soksak_kit_sidecar_terminal::mirror::PointerButton::Middle => {
-                    ffi::ghostty_mouse_event_set_button(self.mouse_event, ffi::MOUSE_BUTTON_MIDDLE)
-                }
-                soksak_kit_sidecar_terminal::mirror::PointerButton::Right => {
-                    ffi::ghostty_mouse_event_set_button(self.mouse_event, ffi::MOUSE_BUTTON_RIGHT)
-                }
+            if let Some(button) = button {
+                ffi::ghostty_mouse_event_set_button(self.mouse_event, button);
+            } else {
+                ffi::ghostty_mouse_event_clear_button(self.mouse_event);
             }
-            ffi::ghostty_mouse_event_set_mods(self.mouse_event, modifiers);
+            ffi::ghostty_mouse_event_set_mods(self.mouse_event, modifier_bits);
             ffi::ghostty_mouse_event_set_position(
                 self.mouse_event,
                 ffi::MousePosition {
-                    x: f32::from(input.col) + 0.5,
-                    y: f32::from(input.row) + 0.5,
+                    x: f32::from(col) + 0.5,
+                    y: f32::from(row) + 0.5,
                 },
             );
         }
+    }
+
+    fn encode_mouse_event(&mut self) -> Result<Vec<u8>, String> {
         let mut stack = [0u8; 64];
         let mut written = 0usize;
         let result = unsafe {
@@ -741,6 +748,110 @@ impl Engine {
         }
         output.truncate(written);
         Ok(output)
+    }
+
+    /// Encode one wheel gesture from the live Ghostty terminal state selected by the common Kit.
+    /// Device-unit normalization and ordinary scrollback never enter this engine boundary. Mouse
+    /// reports go through Ghostty's public encoder; alternate-scroll owns only its declared
+    /// alt-screen cursor-key route. A route whose live modes changed is refused instead of being
+    /// silently reinterpreted as the other route.
+    pub fn wheel_input(&mut self, input: EngineWheelInput) -> Result<Vec<u8>, String> {
+        let modes = self.modes();
+        let mouse_reporting = modes.mouse_click || modes.mouse_drag || modes.mouse_motion;
+        match input.route {
+            EngineWheelRoute::MouseReport => {
+                if !mouse_reporting {
+                    return Err("WHEEL_MODE_CHANGED: mouse reporting is not active".into());
+                }
+
+                let mut output = Vec::new();
+                let mut append = |button: c_int, count: u32| -> Result<(), String> {
+                    for _ in 0..count {
+                        self.configure_mouse_event(
+                            ffi::MOUSE_ACTION_PRESS,
+                            Some(button),
+                            input.modifiers,
+                            input.row,
+                            input.col,
+                            false,
+                        );
+                        let report = self.encode_mouse_event()?;
+                        if report.is_empty() {
+                            return Err(
+                                "WHEEL_ENCODER_REFUSED: Ghostty produced no mouse report".into()
+                            );
+                        }
+                        output.extend(report);
+                    }
+                    Ok(())
+                };
+
+                append(
+                    if input.vertical < 0 {
+                        ffi::MOUSE_BUTTON_FOUR
+                    } else {
+                        ffi::MOUSE_BUTTON_FIVE
+                    },
+                    input.vertical.unsigned_abs(),
+                )?;
+                append(
+                    if input.horizontal < 0 {
+                        ffi::MOUSE_BUTTON_SIX
+                    } else {
+                        ffi::MOUSE_BUTTON_SEVEN
+                    },
+                    input.horizontal.unsigned_abs(),
+                )?;
+                Ok(output)
+            }
+            EngineWheelRoute::AlternateScroll => {
+                if !self.alt_active() || !modes.alternate_scroll || mouse_reporting {
+                    return Err("WHEEL_MODE_CHANGED: alternate scroll is not active".into());
+                }
+
+                let mut output = Vec::new();
+                let vertical = if input.vertical < 0 { b'A' } else { b'B' };
+                for _ in 0..input.vertical.unsigned_abs() {
+                    output.extend_from_slice(&[0x1b, b'O', vertical]);
+                }
+                let horizontal = if input.horizontal < 0 { b'D' } else { b'C' };
+                for _ in 0..input.horizontal.unsigned_abs() {
+                    output.extend_from_slice(&[0x1b, b'O', horizontal]);
+                }
+                Ok(output)
+            }
+        }
+    }
+
+    pub fn pointer_input(&mut self, input: EnginePointerInput) -> Result<Vec<u8>, String> {
+        let action = match input.phase {
+            soksak_kit_sidecar_terminal::mirror::PointerPhase::Down => ffi::MOUSE_ACTION_PRESS,
+            soksak_kit_sidecar_terminal::mirror::PointerPhase::Up => ffi::MOUSE_ACTION_RELEASE,
+            soksak_kit_sidecar_terminal::mirror::PointerPhase::Move => ffi::MOUSE_ACTION_MOTION,
+        };
+        let button = match input.button {
+            soksak_kit_sidecar_terminal::mirror::PointerButton::None => None,
+            soksak_kit_sidecar_terminal::mirror::PointerButton::Left => {
+                Some(ffi::MOUSE_BUTTON_LEFT)
+            }
+            soksak_kit_sidecar_terminal::mirror::PointerButton::Middle => {
+                Some(ffi::MOUSE_BUTTON_MIDDLE)
+            }
+            soksak_kit_sidecar_terminal::mirror::PointerButton::Right => {
+                Some(ffi::MOUSE_BUTTON_RIGHT)
+            }
+        };
+        let pressed = input.phase != soksak_kit_sidecar_terminal::mirror::PointerPhase::Up
+            && input.button != soksak_kit_sidecar_terminal::mirror::PointerButton::None;
+        self.configure_mouse_event(
+            action,
+            button,
+            input.modifiers,
+            input.row,
+            input.col,
+            pressed,
+        );
+        self.encode_mouse_event()
     }
 
     fn selection_point(
@@ -1374,8 +1485,8 @@ impl TerminalEngine for Engine {
     fn selection_range(&self, line: i32) -> Option<(u16, u16)> {
         Engine::selection_range(self, line)
     }
-    fn wheel_input(&mut self, _input: EngineWheelInput) -> Result<Vec<u8>, String> {
-        Err("Ghostty wheel input is not implemented".into())
+    fn wheel_input(&mut self, input: EngineWheelInput) -> Result<Vec<u8>, String> {
+        Engine::wheel_input(self, input)
     }
     fn pointer_input(&mut self, input: EnginePointerInput) -> Result<Vec<u8>, String> {
         Engine::pointer_input(self, input)
