@@ -3,7 +3,7 @@ SHELL := /bin/sh
 BUILD_DEPENDENCY_COMMIT := $(shell node -p 'require("$(CURDIR)/build-dependencies.json").dependencies.find((value)=>value.id==="ghostty-vt-sdk").commit')
 BUILD_DEPENDENCY_ROOT := target/build-dependencies/ghostty-vt-sdk/$(BUILD_DEPENDENCY_COMMIT)
 STAGE ?= dist
-SDK_VERSION := 0.0.14
+SDK_VERSION := 0.0.18
 
 .PHONY: require-target preflight lock prepare build verify stage benchmark require-tooling require-out release attest
 
