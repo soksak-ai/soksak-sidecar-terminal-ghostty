@@ -51,6 +51,17 @@ fn ghostty_native_encoder_owns_legacy_and_utf8_mouse_wheel_encodings() {
         TerminalEngine::wheel_input(&mut engine, legacy).unwrap(),
         [0x1b, b'[', b'M', 124, 34, 35],
     );
+    assert_eq!(
+        TerminalEngine::wheel_input(
+            &mut engine,
+            wheel(-2, 1, EngineWheelRoute::MouseReport),
+        )
+        .unwrap(),
+        [
+            0x1b, b'[', b'M', 97, 34, 35, 0x1b, b'[', b'M', 98, 34, 35, 0x1b, b'[', b'M',
+            98, 34, 35,
+        ],
+    );
 
     engine.feed(b"\x1b[?1005h");
     let mut extended = wheel(0, -1, EngineWheelRoute::MouseReport);
