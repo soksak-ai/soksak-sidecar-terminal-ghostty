@@ -12,6 +12,7 @@ const build = read("build.rs");
 const prepare = read("scripts/prepare-ghostty-sdk.sh");
 const cargo = read("Cargo.toml");
 const engine = read("src/engine.rs");
+const cargoConfig = read(".cargo/config.toml");
 
 if (!cargo.includes('soksak-kit-sidecar-terminal = { git = "https://github.com/soksak-ai/soksak-kit-sidecar-terminal", rev = "20fb2d73d13e5bcde592380d3052c5d2204a592f"')) {
   throw new Error("terminal Kit must be pinned to the final v0.0.34 release commit");
@@ -23,6 +24,15 @@ for (const fact of [
   "modes.reports_pointer(input.phase, input.button)",
 ]) {
   if (!engine.includes(fact)) throw new Error(`Ghostty tracking-mode contract is missing: ${fact}`);
+}
+for (const target of ["aarch64-apple-darwin", "x86_64-apple-darwin"]) {
+  const section = `[target.${target}]`;
+  const start = cargoConfig.indexOf(section);
+  const next = cargoConfig.indexOf("[target.", start + section.length);
+  const body = cargoConfig.slice(start, next < 0 ? undefined : next);
+  if (start < 0 || !body.includes("link-arg=-Wl,-no_uuid")) {
+    throw new Error(`Darwin release must suppress the nondeterministic Mach-O UUID: ${target}`);
+  }
 }
 
 if (manifest.schema !== "soksak-build-dependencies-v1" || !Array.isArray(manifest.dependencies) || manifest.dependencies.length !== 1) {
