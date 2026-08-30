@@ -23,13 +23,22 @@ Pointer reporting also stays in Ghostty. The sidecar owns one `GhosttyMouseEncod
 adapter does not reconstruct X10, UTF-8, SGR, or motion bytes. `tests/pointer_input.rs` pins SGR
 press, held motion, release, and no-button any-motion results.
 
+Tracking-mode state follows the engine's exposed facts. DEC 9 is a native Ghostty mode and maps to
+`TerminalModes.mouse_x10`. Ghostty does not recognize DEC 1001, so `mouse_highlight` is explicitly
+false; it is not inferred from DEC 1000, 1002, or 1003. The Kit's public `reports_pointer` helper
+admits only phases supported by the current mode before the native encoder is called. In
+particular, an X10 press is admitted while an X10 release is refused at this boundary.
+
 Wheel mouse reports reuse that public event and encoder with Ghostty buttons four through seven.
 `tests/wheel_input.rs` pins SGR and legacy/UTF-8 output, both axes, repeated steps, position and
-modifiers. Alternate-screen mode 1007 owns a separate application-cursor-key route. Both routes
-validate the live modes again at the engine boundary, so a mode change between Kit routing and
-encoding is refused. Device-unit normalization, fractional accumulation and ordinary scrollback
-remain in the common terminal Kit; there is no provider fallback. Selection remains on Ghostty's
-native selection-gesture and formatter APIs and is pinned separately by `tests/selection.rs`.
+modifiers. The public `mouse_reporting` helper admits every live tracking mode; Ghostty's X10
+encoder then truthfully refuses wheel buttons because its X10 implementation reports only primary
+button presses. No alternate encoder or protocol alias is introduced. Alternate-screen mode 1007
+owns a separate application-cursor-key route. Both routes validate the live modes again at the
+engine boundary, so a mode change between Kit routing and encoding is refused. Device-unit
+normalization, fractional accumulation and ordinary scrollback remain in the common terminal Kit;
+there is no provider fallback. Selection remains on Ghostty's native selection-gesture and
+formatter APIs and is pinned separately by `tests/selection.rs`.
 
 `tests/conformance.rs::cursor_style` runs the contract-owned DECSCUSR, DEC mode 12, DECTCEM, and
 warm rehydrate cases. `make verify TARGET=aarch64-apple-darwin` verifies only this provider and its

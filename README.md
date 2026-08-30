@@ -80,16 +80,20 @@ responder is the front terminal, which does have colors.
 nothing is reconstructed by observing unhandled sequences. The engine's fresh-terminal
 defaults for the on-by-default modes (wraparound 7, cursor-visible 25, alternate-scroll
 1007) match the judge's, which is what makes the serializer's "emit only what differs from
-a fresh terminal" rule mean the same thing on both sides.
+a fresh terminal" rule mean the same thing on both sides. The input surface also preserves the
+provider's tracking facts: Ghostty exposes DEC 9 natively, while DEC 1001 is not recognized and
+remains explicitly false rather than borrowing the state of another mouse mode.
 
 **Wheel input.** Device units, fractional accumulation and ordinary scrollback remain owned by
 the common terminal Kit. When that Kit selects a PTY route, this adapter refreshes Ghostty's
 public mouse encoder from the live terminal and submits wheel buttons four through seven for
 vertical and horizontal reports. Ghostty therefore owns X10-compatible legacy, UTF-8 and SGR
-encoding, including coordinates, modifiers and repeated steps. The alternate-scroll route emits
-application cursor keys only while the alternate screen and DEC mode 1007 are active and explicit
-mouse reporting is inactive. A route whose modes changed is refused instead of being reinterpreted
-as another route.
+encoding, including coordinates, modifiers and repeated steps. Route admission uses the Kit's
+public tracking-mode helper; Ghostty's native X10 encoder may still refuse unsupported wheel
+buttons, and the adapter does not replace that refusal with a fallback protocol. The
+alternate-scroll route emits application cursor keys only while the alternate screen and DEC mode
+1007 are active and explicit mouse reporting is inactive. A route whose modes changed is refused
+instead of being reinterpreted as another route.
 
 **Scrollback.** History is random-access through the `history` coordinate space, so grid
 reads are pure — the seat never moves a read cursor and restores it, and its grid reads
