@@ -82,6 +82,8 @@ mod ffi {
     pub type RenderState = *mut c_void;
     pub type MouseEvent = *mut c_void;
     pub type MouseEncoder = *mut c_void;
+    pub type SelectionGesture = *mut c_void;
+    pub type SelectionGestureEvent = *mut c_void;
     /// 불투명 셀·행 값(u64).
     pub type Cell = u64;
     pub type Row = u64;
@@ -96,6 +98,7 @@ mod ffi {
     pub const OPT_WRITE_PTY: c_int = 1;
     pub const OPT_DEVICE_ATTRIBUTES: c_int = 8;
     pub const OPT_SCROLLBACK_MAX_BYTES: c_int = 27;
+    pub const OPT_SELECTION: c_int = 21;
 
     // GhosttyTerminalData
     pub const DATA_CURSOR_X: c_int = 3;
@@ -107,6 +110,19 @@ mod ffi {
     pub const DATA_COLOR_BACKGROUND_OVERRIDE: c_int = 41;
     pub const DATA_COLOR_CURSOR_OVERRIDE: c_int = 42;
     pub const DATA_COLOR_PALETTE_OVERRIDES: c_int = 43;
+    pub const DATA_SELECTION: c_int = 31;
+
+    pub const FORMATTER_FORMAT_PLAIN: c_int = 0;
+    pub const SELECTION_BEHAVIOR_CELL: c_int = 0;
+    pub const SELECTION_BEHAVIOR_WORD: c_int = 1;
+    pub const SELECTION_BEHAVIOR_LINE: c_int = 2;
+    pub const SELECTION_EVENT_PRESS: c_int = 0;
+    pub const SELECTION_EVENT_DRAG: c_int = 2;
+    pub const SELECTION_EVENT_OPT_REF: c_int = 0;
+    pub const SELECTION_EVENT_OPT_POSITION: c_int = 1;
+    pub const SELECTION_EVENT_OPT_BEHAVIORS: c_int = 6;
+    pub const SELECTION_EVENT_OPT_RECTANGLE: c_int = 7;
+    pub const SELECTION_EVENT_OPT_GEOMETRY: c_int = 8;
 
     // GhosttyRenderStateData
     pub const RENDER_DATA_CURSOR_VISUAL_STYLE: c_int = 10;
@@ -250,6 +266,53 @@ mod ffi {
 
     #[repr(C)]
     #[derive(Clone, Copy)]
+    pub struct Selection {
+        pub size: usize,
+        pub start: GridRef,
+        pub end: GridRef,
+        pub rectangle: bool,
+    }
+
+    impl Selection {
+        pub fn sized() -> Self {
+            let mut selection: Selection = unsafe { std::mem::zeroed() };
+            selection.size = std::mem::size_of::<Selection>();
+            selection
+        }
+    }
+
+    #[repr(C)]
+    pub struct SelectionFormatOptions {
+        pub size: usize,
+        pub emit: c_int,
+        pub unwrap: bool,
+        pub trim: bool,
+        pub selection: *const Selection,
+    }
+
+    #[repr(C)]
+    pub struct SelectionBehaviors {
+        pub single_click: c_int,
+        pub double_click: c_int,
+        pub triple_click: c_int,
+    }
+
+    #[repr(C)]
+    pub struct SelectionGeometry {
+        pub columns: u32,
+        pub cell_width: u32,
+        pub padding_left: u32,
+        pub screen_height: u32,
+    }
+
+    #[repr(C)]
+    pub struct SurfacePosition {
+        pub x: f64,
+        pub y: f64,
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
     pub union StyleColorValue {
         pub palette: u8,
         pub rgb: ColorRgb,
@@ -368,6 +431,42 @@ mod ffi {
             output_len: usize,
             written: *mut usize,
         ) -> c_int;
+        pub fn ghostty_selection_gesture_new(
+            allocator: *const c_void,
+            gesture: *mut SelectionGesture,
+        ) -> c_int;
+        pub fn ghostty_selection_gesture_free(gesture: SelectionGesture, terminal: Terminal);
+        pub fn ghostty_selection_gesture_reset(gesture: SelectionGesture, terminal: Terminal);
+        pub fn ghostty_selection_gesture_event_new(
+            allocator: *const c_void,
+            event: *mut SelectionGestureEvent,
+            event_type: c_int,
+        ) -> c_int;
+        pub fn ghostty_selection_gesture_event_free(event: SelectionGestureEvent);
+        pub fn ghostty_selection_gesture_event_set(
+            event: SelectionGestureEvent,
+            option: c_int,
+            value: *const c_void,
+        ) -> c_int;
+        pub fn ghostty_selection_gesture_event(
+            gesture: SelectionGesture,
+            terminal: Terminal,
+            event: SelectionGestureEvent,
+            selection: *mut Selection,
+        ) -> c_int;
+        pub fn ghostty_terminal_selection_format_buf(
+            terminal: Terminal,
+            options: SelectionFormatOptions,
+            buffer: *mut u8,
+            buffer_len: usize,
+            written: *mut usize,
+        ) -> c_int;
+        pub fn ghostty_terminal_selection_contains(
+            terminal: Terminal,
+            selection: *const Selection,
+            point: Point,
+            contains: *mut bool,
+        ) -> c_int;
     }
 }
 
@@ -425,6 +524,10 @@ pub struct Engine {
     render: ffi::RenderState,
     mouse_event: ffi::MouseEvent,
     mouse_encoder: ffi::MouseEncoder,
+    selection_gesture: ffi::SelectionGesture,
+    selection_press: ffi::SelectionGestureEvent,
+    selection_drag: ffi::SelectionGestureEvent,
+    selection_kind: Option<SelectionKind>,
     // 콜백 userdata — 힙에 고정된 주소를 터미널에 넘겼다. Engine 이 움직여도 이 주소는
     // 그대로다(Box). 터미널보다 오래 살아야 하므로 Drop 순서가 중요하다(아래 Drop 참조).
     counters: Box<Counters>,
@@ -467,6 +570,26 @@ impl Engine {
             encoder_result == ffi::SUCCESS && !mouse_encoder.is_null(),
             "ghostty_mouse_encoder_new failed (result {encoder_result})"
         );
+        let mut selection_gesture: ffi::SelectionGesture = std::ptr::null_mut();
+        let selection_result =
+            unsafe { ffi::ghostty_selection_gesture_new(std::ptr::null(), &mut selection_gesture) };
+        assert!(
+            selection_result == ffi::SUCCESS && !selection_gesture.is_null(),
+            "ghostty_selection_gesture_new failed (result {selection_result})"
+        );
+        let selection_event = |event_type| {
+            let mut event: ffi::SelectionGestureEvent = std::ptr::null_mut();
+            let result = unsafe {
+                ffi::ghostty_selection_gesture_event_new(std::ptr::null(), &mut event, event_type)
+            };
+            assert!(
+                result == ffi::SUCCESS && !event.is_null(),
+                "ghostty_selection_gesture_event_new failed (result {result})"
+            );
+            event
+        };
+        let selection_press = selection_event(ffi::SELECTION_EVENT_PRESS);
+        let selection_drag = selection_event(ffi::SELECTION_EVENT_DRAG);
 
         let mut counters = Box::new(Counters { suppressed: 0 });
         let userdata: *mut c_void = (&mut *counters as *mut Counters).cast();
@@ -492,6 +615,10 @@ impl Engine {
             render,
             mouse_event,
             mouse_encoder,
+            selection_gesture,
+            selection_press,
+            selection_drag,
+            selection_kind: None,
             counters,
             cols,
             rows,
@@ -614,6 +741,319 @@ impl Engine {
         }
         output.truncate(written);
         Ok(output)
+    }
+
+    fn selection_point(
+        &self,
+        point: EngineSelectionPoint,
+    ) -> Result<(ffi::GridRef, ffi::SurfacePosition), String> {
+        let (tag, y) = self.point_row(point.line)?;
+        let reference = self
+            .grid_ref(tag, point.col.min(self.cols.saturating_sub(1)), y)
+            .ok_or_else(|| "Ghostty selection point has no grid reference".to_string())?;
+        let side = match point.side {
+            soksak_kit_sidecar_terminal::mirror::CellSide::Left => 0.0,
+            soksak_kit_sidecar_terminal::mirror::CellSide::Right => 1.5,
+        };
+        let visible_row = if point.line < 0 {
+            0.0
+        } else {
+            f64::from(point.line)
+        };
+        Ok((
+            reference,
+            ffi::SurfacePosition {
+                x: f64::from(point.col) * 2.0 + side,
+                y: visible_row * 2.0 + 1.0,
+            },
+        ))
+    }
+
+    fn point_row(&self, line: i32) -> Result<(c_int, u32), String> {
+        if line >= 0 {
+            let row = u32::try_from(line).map_err(|_| "Ghostty selection row is invalid")?;
+            if row >= u32::from(self.rows) {
+                return Err("Ghostty selection row is outside the active screen".into());
+            }
+            return Ok((ffi::POINT_TAG_ACTIVE, row));
+        }
+        let retained = i32::try_from(self.retained_rows()).unwrap_or(i32::MAX);
+        let row = retained.saturating_add(line);
+        if row < 0 {
+            return Err("Ghostty selection row is outside retained history".into());
+        }
+        Ok((ffi::POINT_TAG_HISTORY, row as u32))
+    }
+
+    fn set_selection_event_option<T>(
+        event: ffi::SelectionGestureEvent,
+        option: c_int,
+        value: &T,
+    ) -> Result<(), String> {
+        let result = unsafe {
+            ffi::ghostty_selection_gesture_event_set(event, option, (value as *const T).cast())
+        };
+        if result == ffi::SUCCESS {
+            Ok(())
+        } else {
+            Err(format!("Ghostty selection event option failed: {result}"))
+        }
+    }
+
+    fn install_selection(&mut self, selection: &ffi::Selection) -> Result<(), String> {
+        let result = unsafe {
+            ffi::ghostty_terminal_set(
+                self.term,
+                ffi::OPT_SELECTION,
+                (selection as *const ffi::Selection).cast(),
+            )
+        };
+        if result == ffi::SUCCESS {
+            Ok(())
+        } else {
+            Err(format!("Ghostty selection install failed: {result}"))
+        }
+    }
+
+    pub fn selection_begin(
+        &mut self,
+        kind: SelectionKind,
+        point: EngineSelectionPoint,
+        _modifiers: SelectionModifiers,
+    ) -> Result<(), String> {
+        if kind == SelectionKind::Extend {
+            let existing = self.selection_snapshot().ok_or_else(|| {
+                "Ghostty extend selection requires an existing selection".to_string()
+            })?;
+            unsafe {
+                ffi::ghostty_selection_gesture_reset(self.selection_gesture, self.term);
+            }
+            let behaviors = ffi::SelectionBehaviors {
+                single_click: ffi::SELECTION_BEHAVIOR_CELL,
+                double_click: ffi::SELECTION_BEHAVIOR_CELL,
+                triple_click: ffi::SELECTION_BEHAVIOR_CELL,
+            };
+            Self::set_selection_event_option(
+                self.selection_press,
+                ffi::SELECTION_EVENT_OPT_REF,
+                &existing.start,
+            )?;
+            Self::set_selection_event_option(
+                self.selection_press,
+                ffi::SELECTION_EVENT_OPT_BEHAVIORS,
+                &behaviors,
+            )?;
+            let press = unsafe {
+                ffi::ghostty_selection_gesture_event(
+                    self.selection_gesture,
+                    self.term,
+                    self.selection_press,
+                    std::ptr::null_mut(),
+                )
+            };
+            if press != ffi::NO_VALUE && press != ffi::SUCCESS {
+                return Err(format!("Ghostty extend selection press failed: {press}"));
+            }
+            self.selection_kind = Some(kind);
+            return self.selection_update(point, SelectionModifiers::default());
+        }
+        unsafe {
+            ffi::ghostty_selection_gesture_reset(self.selection_gesture, self.term);
+            ffi::ghostty_terminal_set(self.term, ffi::OPT_SELECTION, std::ptr::null());
+        }
+        let (reference, position) = self.selection_point(point)?;
+        let behavior = match kind {
+            SelectionKind::Simple | SelectionKind::Block => ffi::SELECTION_BEHAVIOR_CELL,
+            SelectionKind::Semantic => ffi::SELECTION_BEHAVIOR_WORD,
+            SelectionKind::Line => ffi::SELECTION_BEHAVIOR_LINE,
+            SelectionKind::Extend => unreachable!(),
+        };
+        let behaviors = ffi::SelectionBehaviors {
+            single_click: behavior,
+            double_click: behavior,
+            triple_click: behavior,
+        };
+        Self::set_selection_event_option(
+            self.selection_press,
+            ffi::SELECTION_EVENT_OPT_REF,
+            &reference,
+        )?;
+        Self::set_selection_event_option(
+            self.selection_press,
+            ffi::SELECTION_EVENT_OPT_POSITION,
+            &position,
+        )?;
+        Self::set_selection_event_option(
+            self.selection_press,
+            ffi::SELECTION_EVENT_OPT_BEHAVIORS,
+            &behaviors,
+        )?;
+        let mut selection = ffi::Selection::sized();
+        let result = unsafe {
+            ffi::ghostty_selection_gesture_event(
+                self.selection_gesture,
+                self.term,
+                self.selection_press,
+                &mut selection,
+            )
+        };
+        if result == ffi::SUCCESS {
+            self.install_selection(&selection)?;
+        } else if result != ffi::NO_VALUE {
+            return Err(format!("Ghostty selection press failed: {result}"));
+        }
+        self.selection_kind = Some(kind);
+        Ok(())
+    }
+
+    pub fn selection_update(
+        &mut self,
+        point: EngineSelectionPoint,
+        _modifiers: SelectionModifiers,
+    ) -> Result<(), String> {
+        let kind = self
+            .selection_kind
+            .ok_or_else(|| "no active Ghostty selection".to_string())?;
+        let (reference, position) = self.selection_point(point)?;
+        let geometry = ffi::SelectionGeometry {
+            columns: u32::from(self.cols),
+            cell_width: 2,
+            padding_left: 0,
+            screen_height: u32::from(self.rows) * 2,
+        };
+        let rectangle = kind == SelectionKind::Block;
+        Self::set_selection_event_option(
+            self.selection_drag,
+            ffi::SELECTION_EVENT_OPT_REF,
+            &reference,
+        )?;
+        Self::set_selection_event_option(
+            self.selection_drag,
+            ffi::SELECTION_EVENT_OPT_POSITION,
+            &position,
+        )?;
+        Self::set_selection_event_option(
+            self.selection_drag,
+            ffi::SELECTION_EVENT_OPT_GEOMETRY,
+            &geometry,
+        )?;
+        Self::set_selection_event_option(
+            self.selection_drag,
+            ffi::SELECTION_EVENT_OPT_RECTANGLE,
+            &rectangle,
+        )?;
+        let mut selection = ffi::Selection::sized();
+        let result = unsafe {
+            ffi::ghostty_selection_gesture_event(
+                self.selection_gesture,
+                self.term,
+                self.selection_drag,
+                &mut selection,
+            )
+        };
+        if result != ffi::SUCCESS {
+            return Err(format!("Ghostty selection drag failed: {result}"));
+        }
+        self.install_selection(&selection)
+    }
+
+    pub fn selection_clear(&mut self) {
+        unsafe {
+            ffi::ghostty_selection_gesture_reset(self.selection_gesture, self.term);
+            ffi::ghostty_terminal_set(self.term, ffi::OPT_SELECTION, std::ptr::null());
+        }
+        self.selection_kind = None;
+    }
+
+    fn selection_snapshot(&self) -> Option<ffi::Selection> {
+        let mut selection = ffi::Selection::sized();
+        let result = unsafe {
+            ffi::ghostty_terminal_get(
+                self.term,
+                ffi::DATA_SELECTION,
+                (&mut selection as *mut ffi::Selection).cast(),
+            )
+        };
+        (result == ffi::SUCCESS).then_some(selection)
+    }
+
+    pub fn selection_text(&self) -> Option<String> {
+        let selection = self.selection_snapshot()?;
+        let options = ffi::SelectionFormatOptions {
+            size: std::mem::size_of::<ffi::SelectionFormatOptions>(),
+            emit: ffi::FORMATTER_FORMAT_PLAIN,
+            unwrap: true,
+            trim: true,
+            selection: &selection,
+        };
+        let mut required = 0usize;
+        let query = unsafe {
+            ffi::ghostty_terminal_selection_format_buf(
+                self.term,
+                options,
+                std::ptr::null_mut(),
+                0,
+                &mut required,
+            )
+        };
+        if query != ffi::OUT_OF_SPACE && !(query == ffi::SUCCESS && required == 0) {
+            return None;
+        }
+        let mut bytes = vec![0u8; required];
+        let options = ffi::SelectionFormatOptions {
+            size: std::mem::size_of::<ffi::SelectionFormatOptions>(),
+            emit: ffi::FORMATTER_FORMAT_PLAIN,
+            unwrap: true,
+            trim: true,
+            selection: &selection,
+        };
+        let mut written = 0usize;
+        let result = unsafe {
+            ffi::ghostty_terminal_selection_format_buf(
+                self.term,
+                options,
+                bytes.as_mut_ptr(),
+                bytes.len(),
+                &mut written,
+            )
+        };
+        if result != ffi::SUCCESS {
+            return None;
+        }
+        bytes.truncate(written);
+        String::from_utf8(bytes).ok()
+    }
+
+    pub fn selection_range(&self, line: i32) -> Option<(u16, u16)> {
+        let selection = self.selection_snapshot()?;
+        let (tag, y) = self.point_row(line).ok()?;
+        let mut first = None;
+        let mut last = None;
+        for col in 0..self.cols {
+            let point = ffi::Point {
+                tag,
+                value: ffi::PointValue {
+                    coordinate: ffi::PointCoordinate { x: col, y },
+                },
+            };
+            let mut contains = false;
+            let result = unsafe {
+                ffi::ghostty_terminal_selection_contains(
+                    self.term,
+                    &selection,
+                    point,
+                    &mut contains,
+                )
+            };
+            if result != ffi::SUCCESS {
+                return None;
+            }
+            if contains {
+                first.get_or_insert(col);
+                last = Some(col);
+            }
+        }
+        first.zip(last)
     }
 
     pub fn cols(&self) -> u16 {
@@ -849,6 +1289,9 @@ impl Drop for Engine {
         // 터미널을 먼저 놓는다 — 그 뒤엔 콜백이 불릴 수 없으므로 counters 해제가 안전하다
         // (필드는 이 함수가 끝난 뒤 선언 순서로 떨어진다).
         unsafe {
+            ffi::ghostty_selection_gesture_event_free(self.selection_drag);
+            ffi::ghostty_selection_gesture_event_free(self.selection_press);
+            ffi::ghostty_selection_gesture_free(self.selection_gesture, self.term);
             ffi::ghostty_mouse_event_free(self.mouse_event);
             ffi::ghostty_mouse_encoder_free(self.mouse_encoder);
             ffi::ghostty_render_state_free(self.render);
@@ -909,25 +1352,27 @@ impl TerminalEngine for Engine {
     }
     fn selection_begin(
         &mut self,
-        _kind: SelectionKind,
-        _point: EngineSelectionPoint,
-        _modifiers: SelectionModifiers,
+        kind: SelectionKind,
+        point: EngineSelectionPoint,
+        modifiers: SelectionModifiers,
     ) -> Result<(), String> {
-        Err("Ghostty selection input is not implemented".into())
+        Engine::selection_begin(self, kind, point, modifiers)
     }
     fn selection_update(
         &mut self,
-        _point: EngineSelectionPoint,
-        _modifiers: SelectionModifiers,
+        point: EngineSelectionPoint,
+        modifiers: SelectionModifiers,
     ) -> Result<(), String> {
-        Err("Ghostty selection input is not implemented".into())
+        Engine::selection_update(self, point, modifiers)
     }
-    fn selection_clear(&mut self) {}
+    fn selection_clear(&mut self) {
+        Engine::selection_clear(self)
+    }
     fn selection_text(&self) -> Option<String> {
-        None
+        Engine::selection_text(self)
     }
-    fn selection_range(&self, _line: i32) -> Option<(u16, u16)> {
-        None
+    fn selection_range(&self, line: i32) -> Option<(u16, u16)> {
+        Engine::selection_range(self, line)
     }
     fn wheel_input(&mut self, _input: EngineWheelInput) -> Result<Vec<u8>, String> {
         Err("Ghostty wheel input is not implemented".into())
