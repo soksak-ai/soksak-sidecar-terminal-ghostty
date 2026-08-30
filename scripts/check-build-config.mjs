@@ -11,9 +11,18 @@ const workflow = read(".github/workflows/release.yml");
 const build = read("build.rs");
 const prepare = read("scripts/prepare-ghostty-sdk.sh");
 const cargo = read("Cargo.toml");
+const engine = read("src/engine.rs");
 
-if (!cargo.includes('soksak-kit-sidecar-terminal = { git = "https://github.com/soksak-ai/soksak-kit-sidecar-terminal", rev = "f485b36e6bdd3dad301af3918c631e18d0264de2"')) {
-  throw new Error("terminal Kit must be pinned to the positive-history-scroll revision f485b36e6bdd3dad301af3918c631e18d0264de2");
+if (!cargo.includes('soksak-kit-sidecar-terminal = { git = "https://github.com/soksak-ai/soksak-kit-sidecar-terminal", rev = "20fb2d73d13e5bcde592380d3052c5d2204a592f"')) {
+  throw new Error("terminal Kit must be pinned to the final v0.0.34 release commit");
+}
+for (const fact of [
+  "mouse_x10: self.mode(dec_mode(9))",
+  "mouse_highlight: false",
+  "let mouse_reporting = modes.mouse_reporting();",
+  "modes.reports_pointer(input.phase, input.button)",
+]) {
+  if (!engine.includes(fact)) throw new Error(`Ghostty tracking-mode contract is missing: ${fact}`);
 }
 
 if (manifest.schema !== "soksak-build-dependencies-v1" || !Array.isArray(manifest.dependencies) || manifest.dependencies.length !== 1) {
