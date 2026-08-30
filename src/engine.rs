@@ -757,7 +757,7 @@ impl Engine {
     /// silently reinterpreted as the other route.
     pub fn wheel_input(&mut self, input: EngineWheelInput) -> Result<Vec<u8>, String> {
         let modes = self.modes();
-        let mouse_reporting = modes.mouse_click || modes.mouse_drag || modes.mouse_motion;
+        let mouse_reporting = modes.mouse_reporting();
         match input.route {
             EngineWheelRoute::MouseReport => {
                 if !mouse_reporting {
@@ -824,6 +824,10 @@ impl Engine {
     }
 
     pub fn pointer_input(&mut self, input: EnginePointerInput) -> Result<Vec<u8>, String> {
+        let modes = self.modes();
+        if !modes.reports_pointer(input.phase, input.button) {
+            return Err("POINTER_MODE_CHANGED: pointer reporting is not active".into());
+        }
         let action = match input.phase {
             soksak_kit_sidecar_terminal::mirror::PointerPhase::Down => ffi::MOUSE_ACTION_PRESS,
             soksak_kit_sidecar_terminal::mirror::PointerPhase::Up => ffi::MOUSE_ACTION_RELEASE,
@@ -1306,7 +1310,11 @@ impl Engine {
             app_cursor: self.mode(dec_mode(1)),
             // DECKPAM(ESC =)이 세우는 모드가 keypad_keys(66)다.
             app_keypad: self.mode(dec_mode(66)),
+            mouse_x10: self.mode(dec_mode(9)),
             mouse_click: self.mode(dec_mode(1000)),
+            // Ghostty has no DEC 1001 mode. Its parser ignores the sequence and its
+            // DATA_MODE interface rejects the unknown mode instead of aliasing it.
+            mouse_highlight: false,
             mouse_drag: self.mode(dec_mode(1002)),
             mouse_motion: self.mode(dec_mode(1003)),
             sgr_mouse: self.mode(dec_mode(1006)),
