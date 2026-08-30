@@ -1,2 +1,8 @@
 [net]
 git-fetch-with-cli = true
+
+[target.aarch64-apple-darwin]
+rustflags = ["-C", "link-arg=-Wl,-no_uuid"]
+
+[target.x86_64-apple-darwin]
+rustflags = ["-C", "link-arg=-Wl,-no_uuid"]

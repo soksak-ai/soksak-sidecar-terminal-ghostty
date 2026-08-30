@@ -5,7 +5,15 @@ documents in this directory.
 
 ## 2026-08-30
 
-### 0.0.39
+### 0.0.40
+
+- Pinned the Ghostty SDK source revision that strips checkout-specific debug paths and
+  canonicalizes Darwin static-archive metadata and member order.
+- Darwin Rust links now pass `-Wl,-no_uuid`, removing ld64's nondeterministic `LC_UUID` instead of
+  patching a completed binary.
+- Added named cross-root release comparison and proved two clean checkout releases byte-identical.
+
+### 0.0.39 (unpublished candidate)
 
 - Pinned the common terminal Kit to its final `v0.0.34` release commit
   (`20fb2d73d13e5bcde592380d3052c5d2204a592f`).

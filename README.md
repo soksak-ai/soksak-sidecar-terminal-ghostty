@@ -37,7 +37,9 @@ make attest TARGET=aarch64-apple-darwin OUT=/absolute/ghostty-release
 
 `prepare` materializes an exact clean source checkout, builds ReleaseFast with a portable CPU
 baseline, writes the target archive and provenance files, and verifies a byte receipt. Repeating
-the command revalidates and reuses the same output. A Linux archive built without ReleaseFast measured
+the command revalidates and reuses the same output. ReleaseFast lib-vt artifacts strip
+checkout-specific debug paths, and the SDK revision declared in `build-dependencies.json` emits canonical Darwin archive metadata and member order;
+the same commit therefore produces the same SDK bytes in independent roots. A Linux archive built without ReleaseFast measured
 0.482 MB/s against 79.218 MB/s daemon demand and lost 65,615,783 bytes; the pinned ReleaseFast
 archive measured 125.572 MB/s, zero gap bytes and a visible tail marker on 2026-08-22.
 
@@ -45,7 +47,10 @@ archive measured 125.572 MB/s, zero gap bytes and a visible tail marker on 2026-
 exact target, and rejects a missing or symbolic archive. It never accepts a raw library path,
 guesses a checkout, or links silently against another installation. The engine's `lib` directory ships a dylib next to the archive and the macOS linker
 prefers the dylib, so `build.rs` stages the archive alone into `OUT_DIR` and links that:
-the sidecar binary carries the engine rather than hunting for a shared library at runtime.
+the sidecar binary carries the engine rather than hunting for a shared library at runtime. Darwin
+Rust links disable ld64's automatically generated `LC_UUID`, so final binary identity is derived
+only from declared inputs. `scripts/check-cross-root-release.sh` compares every file in two complete
+release roots and rejects any missing, extra, symbolic, or byte-divergent evidence.
 
 ## Engine seat vs shared machinery
 

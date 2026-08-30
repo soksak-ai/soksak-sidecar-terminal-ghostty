@@ -4,7 +4,7 @@
     {
       "id": "ghostty-vt-sdk",
       "repository": "https://github.com/min-median-max/ghostty.git",
-      "commit": "6c46012ec717e8756bb32c46e7be536d815bbb2c",
+      "commit": "fbfb4c510321379d63ff8e83ab40410f8656cefe",
       "tools": {
         "zig": "0.16.0"
       },
