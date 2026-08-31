@@ -30,7 +30,7 @@ if (!read("README.md").includes("make attest TARGET=") || !read("README.md").inc
 if (workflow.includes(dependency.repository) || workflow.includes(dependency.commit) || workflow.includes(dependency.tools.zig)) {
   throw new Error("release workflow duplicates build-dependencies.json metadata");
 }
-for (const value of ["sdk_archive_url:", "sdk_archive_sha256:", "sdk_release_url:", "sdk_release_sha256:", "${{ inputs.sdk_archive_url }}", "${{ inputs.sdk_release_url }}", "$RUNNER_TEMP/soksak-sdk", "soksak-sdk prepare", ".dependencies/soksak-spec/release-template"]) requireText(value, "release-train input");
+for (const value of ["sdk_archive_url:", "sdk_archive_sha256:", "sdk_release_url:", "sdk_release_sha256:", "${{ inputs.sdk_archive_url }}", "${{ inputs.sdk_release_url }}", "$RUNNER_TEMP/soksak-sdk", "id: tooling", "node-version: ${{ steps.tooling.outputs.node }}", "soksak-sdk prepare", ".dependencies/soksak-spec/release-template"]) requireText(value, "release-train input");
 for (const obsolete of ["spec_url:", "spec_sha256:", ".dependency/spec-package"]) if (workflow.includes(obsolete)) throw new Error(`release workflow retains obsolete tooling: ${obsolete}`);
 if (workflow.includes("repository: soksak-ai/soksak-spec")) throw new Error("workflow must not checkout spec source");
 requireText("mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29", "pinned verified Zig installer");
