@@ -39,7 +39,7 @@ make attest TARGET=aarch64-apple-darwin OUT=/absolute/ghostty-release
 baseline, writes the target archive and provenance files, and verifies a byte receipt. Repeating
 the command revalidates and reuses the same output. ReleaseFast lib-vt artifacts strip
 checkout-specific debug paths, and the SDK revision declared in `build-dependencies.json` emits canonical Darwin archive metadata and member order;
-the same commit therefore produces the same SDK bytes in independent roots. A Linux archive built without ReleaseFast measured
+the declared inputs therefore produce the same SDK bytes in independent roots. A Linux archive built without ReleaseFast measured
 0.482 MB/s against 79.218 MB/s daemon demand and lost 65,615,783 bytes; the pinned ReleaseFast
 archive measured 125.572 MB/s, zero gap bytes and a visible tail marker on 2026-08-22.
 
