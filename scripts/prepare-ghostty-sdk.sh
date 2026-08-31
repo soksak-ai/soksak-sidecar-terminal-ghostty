@@ -10,7 +10,7 @@ build_root=$root/$build_root
 receipt=$build_root/receipts/$target.json
 
 if [ -f "$receipt" ]; then
-  soksak-validate build-receipt "$receipt" --dependencies "$root/build-dependencies.json" --output-root "$build_root"
+  soksak-sdk validate build-receipt "$receipt" --dependencies "$root/build-dependencies.json" --output-root "$build_root"
   echo "GHOSTTY_SDK_REUSED target=$target"
   exit 0
 fi
@@ -32,7 +32,7 @@ trap cleanup EXIT HUP INT TERM
 mkdir -p "$transaction/targets/$target/lib"
 
 resolution=$transaction/resolution.json
-soksak-validate build-dependencies "$root/build-dependencies.json" --dependency ghostty-vt-sdk --target "$target" > "$resolution"
+soksak-sdk validate build-dependencies "$root/build-dependencies.json" --dependency ghostty-vt-sdk --target "$target" > "$resolution"
 repository=$(node -e 'const v=require(process.argv[1]);process.stdout.write(v.repository)' "$resolution")
 commit=$(node -e 'const v=require(process.argv[1]);process.stdout.write(v.commit)' "$resolution")
 zig_version=$(node -e 'const v=require(process.argv[1]);process.stdout.write(v.tools.zig)' "$resolution")
@@ -78,14 +78,14 @@ if find "$transaction/targets/$target" -type l -print -quit | grep -q .; then
   exit 79
 fi
 mkdir -p "$transaction/receipts"
-soksak-validate build-receipt-create "$root/build-dependencies.json" --dependency ghostty-vt-sdk \
+soksak-sdk validate build-receipt-create "$root/build-dependencies.json" --dependency ghostty-vt-sdk \
   --target "$target" --output-root "$transaction" --out "$transaction/receipts/$target.json"
-soksak-validate build-receipt "$transaction/receipts/$target.json" \
+soksak-sdk validate build-receipt "$transaction/receipts/$target.json" \
   --dependencies "$root/build-dependencies.json" --output-root "$transaction"
 
 mkdir -p "$build_root/targets" "$build_root/receipts"
 [ ! -e "$build_root/targets/$target" ] && [ ! -e "$receipt" ] || { echo "Ghostty SDK output appeared concurrently" >&2; exit 79; }
 mv "$transaction/targets/$target" "$build_root/targets/$target"
 mv "$transaction/receipts/$target.json" "$receipt"
-soksak-validate build-receipt "$receipt" --dependencies "$root/build-dependencies.json" --output-root "$build_root"
+soksak-sdk validate build-receipt "$receipt" --dependencies "$root/build-dependencies.json" --output-root "$build_root"
 echo "GHOSTTY_SDK_READY target=$target"

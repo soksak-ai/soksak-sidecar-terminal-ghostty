@@ -3,7 +3,7 @@ SHELL := /bin/sh
 BUILD_DEPENDENCY_COMMIT := $(shell node -p 'require("$(CURDIR)/build-dependencies.json").dependencies.find((value)=>value.id==="ghostty-vt-sdk").commit')
 BUILD_DEPENDENCY_ROOT := target/build-dependencies/ghostty-vt-sdk/$(BUILD_DEPENDENCY_COMMIT)
 STAGE ?= dist
-SDK_VERSION := 0.0.18
+SDK_VERSION := 0.0.20
 
 .PHONY: require-target preflight lock prepare build verify stage benchmark require-tooling require-out release attest
 
@@ -12,7 +12,7 @@ require-target:
 
 preflight: require-target
 	@scripts/check-build-environment.sh '$(TARGET)'
-	@soksak-validate build-dependencies build-dependencies.json --dependency ghostty-vt-sdk --target '$(TARGET)' >/dev/null
+	@soksak-sdk validate build-dependencies build-dependencies.json --dependency ghostty-vt-sdk --target '$(TARGET)' >/dev/null
 
 lock: preflight
 	@cargo metadata --format-version 1 > /dev/null
@@ -27,7 +27,7 @@ build: prepare
 verify: build
 	@node scripts/check-reference-language.mjs
 	@node scripts/check-build-config.mjs
-	@soksak-validate build-receipt '$(BUILD_DEPENDENCY_ROOT)/receipts/$(TARGET).json' --dependencies build-dependencies.json --output-root '$(BUILD_DEPENDENCY_ROOT)'
+	@soksak-sdk validate build-receipt '$(BUILD_DEPENDENCY_ROOT)/receipts/$(TARGET).json' --dependencies build-dependencies.json --output-root '$(BUILD_DEPENDENCY_ROOT)'
 	@SOKSAK_BUILD_DEPENDENCY_ROOT='$(CURDIR)/$(BUILD_DEPENDENCY_ROOT)' scripts/gate.sh '$(TARGET)'
 
 stage: build
