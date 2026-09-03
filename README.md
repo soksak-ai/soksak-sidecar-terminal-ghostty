@@ -4,8 +4,9 @@ The terminal-domain restore sidecar built on the **ghostty** VT engine (`libghos
 It is an engine unit implementing the contract `soksak-spec-sidecar-terminal` — the same
 contract the other engine units implement on their own engines. One contract, many
 engine units, one at a time behind a terminal plugin's manifest declaration (NAMING §8:
-the unit name carries the engine, exactly as `[redacted]` carries
-Chromium).
+the engine is in the unit's name). Ghostty is in this one's because ghostty is what makes
+it a separate unit — two units implementing this contract differ in nothing else a caller
+can see.
 
 ## The contract lives elsewhere — this repo does not copy it
 
