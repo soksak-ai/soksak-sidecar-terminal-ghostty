@@ -14,8 +14,8 @@ const cargo = read("Cargo.toml");
 const engine = read("src/engine.rs");
 const cargoConfig = read(".cargo/config.toml");
 
-if (!cargo.includes('soksak-kit-sidecar-terminal = { git = "https://github.com/soksak-ai/soksak-kit-sidecar-terminal", rev = "8d1ef287cfdfa9d2d09f5cba1946f33c67589163"')) {
-  throw new Error("terminal Kit must be pinned to the final v0.0.34 release commit");
+if (!cargo.includes('soksak-kit-sidecar-terminal = { git = "https://github.com/soksak-ai/soksak-kit-sidecar-terminal", rev = "97c20b025b042f0de9798a7c57d8c38200886e7d"')) {
+  throw new Error("terminal Kit must be pinned to the final 0.0.36 release commit");
 }
 for (const fact of [
   "mouse_x10: self.mode(dec_mode(9))",
